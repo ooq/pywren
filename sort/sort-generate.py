@@ -20,21 +20,23 @@ if __name__ == "__main__":
     def run_command(key):
         logger = logging.getLogger(__name__)
 
-        client = boto3.client('s3', 'us-west-2')
+        for i in range(0,20):
+            number_of_records = 1000 * 1000
+            begin = key * number_of_records
 
-        res1 = subprocess.check_output(["ls", "-lh", "/tmp/condaruntime/"])
-        print "res1 ", res1
-        res2 = subprocess.check_output(["/tmp/condaruntime/gensort", "-b10", "10",
-                                        "/tmp/condaruntime/part1"])
-        print "res2 ", res2
-        res3 = subprocess.check_output(["ls", "-lh", "/tmp/condaruntime/"])
-        print "res3 ", res3
-        client.upload_file("/tmp/condaruntime/part1", "sort-data", "input1/part1")
+            client = boto3.client('s3', 'us-west-2')
 
-            
+            res0 = subprocess.check_output(["rm", "-rf", "/tmp/condaruntime/input"])
+            res1 = subprocess.check_output(["mkdir", "-p", "/tmp/condaruntime/input"])
+            res2 = subprocess.check_output(["/tmp/condaruntime/gensort",
+                                            "-b"+str(begin),
+                                            str(number_of_records),
+                                            "/tmp/condaruntime/input/part-" + str(key)])
+            client.upload_file("/tmp/condaruntime/input/part-"+str(key), "sort-data", "input/part-" + str(key))
+            key = key+1
 
     wrenexec = pywren.default_executor()
-    fut = wrenexec.map(run_command, [1])
+    fut = wrenexec.map(run_command, range(1,10000,20))
 
     res = [f.result() for f in fut]
     print res
