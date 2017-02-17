@@ -31,6 +31,8 @@ for i in range(1, numPartitions):
 t0 = time.time()
 client = boto3.client('s3', 'us-west-2')
 inputs = []
+
+
 for inputId in range((taskId*inputsPerTask), ((taskId+1)*inputsPerTask)):
         key = "input/part-" + str(inputId)
         obj = client.get_object(Bucket='sort-data', Key=key)
@@ -38,6 +40,8 @@ for inputId in range((taskId*inputsPerTask), ((taskId+1)*inputsPerTask)):
         data = np.fromstring(fileobj.read(), dtype = recordType)
         inputs.append(data)
 records = np.concatenate(inputs)
+
+
 t1 = time.time()
 print 'read time ', (t1-t0)
 
