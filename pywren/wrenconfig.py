@@ -97,6 +97,12 @@ more_permissions_policy = {
         }, 
         {
             "Effect": "Allow",
+            "Action": "dynamodb:*",
+            "Resource": "arn:aws:dynamodb:AWS_REGION:AWS_ACCOUNT_ID:table/*"
+
+        },
+        {
+            "Effect": "Allow",
             "Action": "logs:CreateLogGroup",
             "Resource": "arn:aws:logs:AWS_REGION:AWS_ACCOUNT_ID:*"
         },
