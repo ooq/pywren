@@ -27,23 +27,10 @@ def partition_data():
                 rounds = (inputsPerTask + taskPerRound - 1) / taskPerRound
                 numPartitions = key['parts']
 
-                min_value = struct.unpack(">I", "\x00\x00\x00\x00")[0]
-                max_value = struct.unpack(">I", "\xff\xff\xff\xff")[0]
-
-                rangePerPart = (max_value - min_value) / numPartitions
-
-                keyType = np.dtype([('key', 'S4')])
-                # 4 bytes good enough for partitioning
-                recordType = np.dtype([('key','S4'), ('value', 'S96')])
-
-                boundaries = []
-                # (numPartitions-1) boundaries
-                for i in range(1, numPartitions):
-                        # 4 bytes unsigned integers
-                        b = struct.pack('>I', rangePerPart * i)
-                        boundaries.append(b)
+                recordType = np.dtype([('key','S10'), ('value', 'S90')])
 
                 client = boto3.client('s3', 'us-west-2')
+                table = boto3.resource('dynamodb', 'us-west-2').Table('sort-intermediate')
 
                 [t1, t2, t3] = [time.time()] * 3
                 # a total of 10 threads
@@ -104,13 +91,20 @@ def partition_data():
                         logger.info('paritioning time: ' + str(t3-t2))
 
                         def write_work(partitionId):
-                                mapId = rounds * taskId + roundIdx
-                                key = "intermediate/part-" + str(mapId) + "-" + str(partitionId)
-                                body = np.asarray(outputs[ps[i]]).tobytes()
-                                client.put_object(Bucket='sort-data-2', Key=key, Body=body)
-
+                                #key = "intermediate/part-" + str(mapId) + "-" + str(partitionId)
+                                # client.put_object(Bucket='sort-data-2', Key=key, Body=body)
+                                with table.batch_writer() as batch:
+                                    for i in range(numPartitions):
+                                        filekey = mapId * numPartitions + i
+                                        body = np.asarray(outputs[ps[i]]).tobytes()
+                                        batch.put_item(
+                                                    Item={
+                                                        'filekey': filekey,
+                                                        'file': body
+                                                    }
+                                        )
                         paritions = range(numPartitions)
-                        write_pool_handler = write_pool.map_async(write_work, paritions)
+                        write_pool_handler = write_pool.map_async(write_work, [1])
                         write_pool_handler_container.append(write_pool_handler)
 
                 if len(write_pool_handler_container) > 0:

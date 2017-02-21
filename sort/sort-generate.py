@@ -32,11 +32,11 @@ if __name__ == "__main__":
                                             "-b"+str(begin),
                                             str(number_of_records),
                                             "/tmp/condaruntime/input/part-" + str(key)])
-            client.upload_file("/tmp/condaruntime/input/part-"+str(key), "sort-data", "input/part-" + str(key))
+            client.upload_file("/tmp/condaruntime/input/part-"+str(key), "sort-data", "input100t/part-" + str(key))
             key = key+1
 
     wrenexec = pywren.default_executor()
-    fut = wrenexec.map(run_command, range(1,10000,20))
+    fut = wrenexec.map(run_command, range(0,1000000,20))
 
     res = [f.result() for f in fut]
     print res

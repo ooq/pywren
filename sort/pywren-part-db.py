@@ -44,6 +44,7 @@ def partition_data():
                         boundaries.append(b)
 
                 client = boto3.client('s3', 'us-west-2')
+                table = boto3.resource('dynamodb', 'us-west-2').Table('sort-1')
 
                 [t1, t2, t3] = [time.time()] * 3
                 # a total of 10 threads
@@ -103,14 +104,42 @@ def partition_data():
                         t3 = time.time()
                         logger.info('paritioning time: ' + str(t3-t2))
 
-                        def write_work(partitionId):
+                        def write_work(roundIdx):
+                                #key = "intermediate/part-" + str(mapId) + "-" + str(partitionId)
+                                # client.put_object(Bucket='sort-data-2', Key=key, Body=body)
                                 mapId = rounds * taskId + roundIdx
-                                key = "intermediate/part-" + str(mapId) + "-" + str(partitionId)
-                                body = np.asarray(outputs[ps[i]]).tobytes()
-                                client.put_object(Bucket='sort-data-2', Key=key, Body=body)
+                                # for k in range(0, (numPartitions+39)/40):
+                                #         with table.batch_writer() as batch:
+                                #             for j in range(40):
+                                #                 i = min(k*40+j,numPartitions-1)
+                                #                 filekey = mapId * numPartitions + i
+                                #                 #logger.info('mapId' + str(mapId) + ' p ' + str(numPartitions) + ' i ' + str(i) + ' filekey: ' + str(filekey))
+                                #                 body = np.asarray(outputs[ps[i]]).tobytes()
+                                #                 batch.put_item(
+                                #                             Item={
+                                #                                 'filekey': filekey,
+                                #                                 'file': body
+                                #                             }
+                                #                 )
+                                for k in range(0, 1):
+                                        with table.batch_writer() as batch:
+                                            for j in range(1):
+                                                i = min(k*40+j,numPartitions-1)
+                                                filekey = mapId * numPartitions + i
+                                                #logger.info('mapId' + str(mapId) + ' p ' + str(numPartitions) + ' i ' + str(i) + ' filekey: ' + str(filekey))
+                                                body = np.asarray(outputs[ps[i]]).tobytes()
+                                                response = batch.put_item(
+                                                            Item={
+                                                                'filekey': filekey,
+                                                                'file': body
+                                                            }
+                                                )
+                                                logger.info('filekey: ' + str(filekey))
+                                                logger.info('response: ' + str(response))
 
+                                        #print 'response ', response
                         paritions = range(numPartitions)
-                        write_pool_handler = write_pool.map_async(write_work, paritions)
+                        write_pool_handler = write_pool.map_async(write_work, [roundIdx])
                         write_pool_handler_container.append(write_pool_handler)
 
                 if len(write_pool_handler_container) > 0:
