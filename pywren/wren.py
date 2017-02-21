@@ -4,6 +4,7 @@ import botocore
 from six import reraise
 import json
 import base64
+from threading import Thread
 try:
     from six.moves import cPickle as pickle
 except:
@@ -13,7 +14,7 @@ from pywren import wrenconfig, wrenutil
 import enum
 from multiprocessing.pool import ThreadPool
 import time
-from pywren import s3util
+from pywren import s3util, version
 import logging
 import botocore
 import glob2
@@ -32,20 +33,20 @@ class JobState(enum.Enum):
     success = 4
     error = 5
 
-def default_executor():
+def default_executor(**kwargs):
     executor_str = 'lambda'
     if 'PYWREN_EXECUTOR' in os.environ:
         executor_str = os.environ['PYWREN_EXECUTOR']
     
     if executor_str == 'lambda':
-        return lambda_executor()
+        return lambda_executor(**kwargs)
     elif executor_str == 'remote' or executor_str=='standalone':
-        return remote_executor()
+        return remote_executor(**kwargs)
     elif executor_str == 'dummy':
-        return dummy_executor()
-    return lambda_executor()
+        return dummy_executor(**kwargs)
+    return lambda_executor(**kwargs)
         
-def lambda_executor(config= None):
+def lambda_executor(config= None, job_max_runtime=280):
 
     if config is None:
         config = wrenconfig.default()
@@ -56,7 +57,8 @@ def lambda_executor(config= None):
     S3_PREFIX = config['s3']['pywren_prefix']
     
     invoker = invokers.LambdaInvoker(AWS_REGION, FUNCTION_NAME)
-    return Executor(AWS_REGION, S3_BUCKET, S3_PREFIX, invoker, config)
+    return Executor(AWS_REGION, S3_BUCKET, S3_PREFIX, invoker, config, 
+                    job_max_runtime)
 
 def dummy_executor():
     config = wrenconfig.default()
@@ -64,16 +66,20 @@ def dummy_executor():
     S3_BUCKET = config['s3']['bucket']
     S3_PREFIX = config['s3']['pywren_prefix']
     invoker = invokers.DummyInvoker()
-    return Executor(AWS_REGION, S3_BUCKET, S3_PREFIX, invoker, config)
+    return Executor(AWS_REGION, S3_BUCKET, S3_PREFIX, invoker, config, 
+                    100)
     
-def remote_executor():
-    config = wrenconfig.default()
+def remote_executor(config= None, job_max_runtime=3600):
+    if config is None:
+        config = wrenconfig.default()
+
     AWS_REGION = config['account']['aws_region']
     SQS_QUEUE = config['standalone']['sqs_queue_name']
     S3_BUCKET = config['s3']['bucket']
     S3_PREFIX = config['s3']['pywren_prefix']
     invoker = invokers.SQSInvoker(AWS_REGION, SQS_QUEUE)
-    return Executor(AWS_REGION, S3_BUCKET, S3_PREFIX, invoker, config)
+    return Executor(AWS_REGION, S3_BUCKET, S3_PREFIX, invoker, config, 
+                    job_max_runtime)
     
 class Executor(object):
     """
@@ -81,7 +87,7 @@ class Executor(object):
     """
 
     def __init__(self, aws_region, s3_bucket, s3_prefix, 
-                 invoker, config):
+                 invoker, config, job_max_runtime):
         self.aws_region = aws_region
         self.s3_bucket = s3_bucket
         self.s3_prefix = s3_prefix
@@ -90,7 +96,7 @@ class Executor(object):
         self.session = botocore.session.get_session()
         self.invoker = invoker
         self.s3client = self.session.create_client('s3', region_name = aws_region)
-        
+        self.job_max_runtime = job_max_runtime
 
 
     def create_mod_data(self, mod_paths):
@@ -127,18 +133,21 @@ class Executor(object):
                          s3_status_key, 
                          callset_id, call_id, extra_env, 
                          extra_meta, data_byte_range, use_cached_runtime, 
-                         host_job_meta):
+                         host_job_meta, job_max_runtime, 
+                         overwrite_invoke_args = None):
     
         arg_dict = {'func_key' : s3_func_key, 
                     'data_key' : s3_data_key, 
                     'output_key' : s3_output_key, 
                     'status_key' : s3_status_key, 
                     'callset_id': callset_id, 
+                    'job_max_runtime' : job_max_runtime, 
                     'data_byte_range' : data_byte_range, 
                     'call_id' : call_id, 
                     'use_cached_runtime' : use_cached_runtime, 
                     'runtime_s3_bucket' : self.config['runtime']['s3_bucket'], 
-                    'runtime_s3_key' : self.config['runtime']['s3_key']}    
+                    'runtime_s3_key' : self.config['runtime']['s3_key'], 
+                    'pywren_version' : version.__version__}    
         
         if extra_env is not None:
             logger.debug("Extra environment vars {}".format(extra_env))
@@ -156,6 +165,10 @@ class Executor(object):
 
         logger.info("call_async {} {} lambda invoke ".format(callset_id, call_id))
         lambda_invoke_time_start = time.time()
+
+        # overwrite explicit args, mostly used for testing via injection
+        if overwrite_invoke_args is not None:
+            arg_dict.update(overwrite_invoke_args)
 
         # do the invocation
         self.invoker.invoke(arg_dict)
@@ -194,7 +207,7 @@ class Executor(object):
 
     def map(self, func, iterdata, extra_env = None, extra_meta = None, 
             invoke_pool_threads=64, data_all_as_one=True, 
-            use_cached_runtime=True):
+            use_cached_runtime=True, overwrite_invoke_args = None):
         """
         # FIXME work with an actual iterable instead of just a list
 
@@ -285,7 +298,9 @@ class Executor(object):
                                          s3_status_key, 
                                          callset_id, call_id, extra_env, 
                                          extra_meta, data_byte_range, 
-                                         use_cached_runtime, host_job_meta.copy())
+                                         use_cached_runtime, host_job_meta.copy(), 
+                                         self.job_max_runtime, 
+                                         overwrite_invoke_args = overwrite_invoke_args)
 
         N = len(data)
         call_result_objs = []
@@ -507,7 +522,17 @@ class ResponseFuture(object):
         self._invoke_metadata['status_done_timestamp'] = time.time()
         self._invoke_metadata['status_query_count'] = self.status_query_count
             
-        # FIXME check if it actually worked all the way through 
+        if call_status['exception'] is not None:
+            # the wrenhandler had an exception
+            exception_str = call_status['exception']
+            print(call_status.keys())
+            exception_args = call_status['exception_args']
+            if exception_args[0] == "WRONGVERSION":
+                raise Exception("Pywren version mismatch: remove expected version {}, local library is version {}".format(exception_args[2], exception_args[3]))
+            elif exception_args[0] == "OUTATIME":
+                raise Exception("process ran out of time")
+            else:
+                raise Exception(exception_str, *exception_args)
         
         call_output_time = time.time()
         call_invoker_result = get_call_output(self.callset_id, self.call_id, 
@@ -528,7 +553,7 @@ class ResponseFuture(object):
         self._call_invoker_result = call_invoker_result
 
         if call_success:
-            
+
             self._return_val = call_invoker_result['result']
             self._state = JobState.success
         else:

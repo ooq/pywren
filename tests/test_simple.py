@@ -210,3 +210,4 @@ class SerializeFutures(unittest.TestCase):
 
         res = np.array([f.result() for f in futures])
         np.testing.assert_array_equal(res, x + 1)
+
