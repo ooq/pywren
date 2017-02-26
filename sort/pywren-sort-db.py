@@ -34,8 +34,8 @@ def partition_data():
 
                 [t1, t2, t3] = [time.time()] * 3
                 # a total of 10 threads
-                read_pool = ThreadPool(1)
-                write_pool = ThreadPool(1)
+                read_pool = ThreadPool(3)
+                write_pool = ThreadPool(7)
                 write_pool_handler_container = []
                 for roundIdx in range(rounds):
                         inputs = []

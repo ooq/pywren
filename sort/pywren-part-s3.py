@@ -9,6 +9,7 @@ import cPickle as pickle
 from multiprocessing.pool import ThreadPool
 #from multiprocessing import Pool
 import logging
+import md5
 
 def partition_data():
         def run_command(key):
@@ -24,7 +25,7 @@ def partition_data():
                 # 1T
                 totalInputs = 10000
                 inputsPerTask = key['inputs']
-                taskPerRound =  1
+                taskPerRound =  3
                 rounds = (inputsPerTask + taskPerRound - 1) / taskPerRound
                 numPartitions = key['parts']
 
@@ -49,14 +50,21 @@ def partition_data():
                 [t1, t2, t3] = [time.time()] * 3
                 # a total of 10 threads
                 read_pool = ThreadPool(1)
-                write_pool = ThreadPool(1)
+                number_of_clients = 10
+                write_pool = ThreadPool(number_of_clients)
+                clients = []
+                for client_id in range(number_of_clients):
+                        clients.append(boto3.client('s3', 'us-west-2'))
                 write_pool_handler_container = []
                 for roundIdx in range(rounds):
                         inputs = []
 
                         def read_work(inputId):
-                                key = "input/part-" + str(inputId)
-                                obj = client.get_object(Bucket='sort-data', Key=key)
+                                key = "part-" + str(inputId)
+                                m = md5.new()
+                                m.update(key)
+                                randomized_key = m.hexdigest()[:8] + key
+                                obj = client.get_object(Bucket='sort-input-random', Key=randomized_key)
                                 fileobj = obj['Body']
                                 data = np.fromstring(fileobj.read(), dtype = recordType)
                                 inputs.append(data)
@@ -109,16 +117,36 @@ def partition_data():
                                 key = "part-" + str(mapId) + "-" + str(writer_key['i'])
                                 m = md5.new()
                                 m.update(key)
-                                randomized_key = m.hexdigest()[:4] + key
+                                randomized_key = m.hexdigest()[:8] + key
                                 body = np.asarray(outputs[ps[i]]).tobytes()
                                 client.put_object(Bucket='sort-data-random-test', Key=randomized_key, Body=body)
+                        def write_work_client(writer_key):
+                                client_id = writer_key['i']
+                                local_client = clients[client_id]
+                                mapId = rounds * taskId + writer_key['roundIdx']
+                                key_per_client = writer_key['key-per-client']
+
+                                for i in range(key_per_client*client_id, min(key_per_client*(client_id+1), numPartitions)):
+                                        key = "part-" + str(mapId) + "-" + str(i)
+                                        m = md5.new()
+                                        m.update(key)
+                                        randomized_key = m.hexdigest()[:8] + key
+                                        body = np.asarray(outputs[ps[i]]).tobytes()
+                                        local_client.put_object(Bucket='sort-data-random-test', Key=randomized_key, Body=body)
+
+                        # writer_keylist = []
+                        # for i in range(numPartitions):
+                        #         writer_keylist.append({'roundIdx': roundIdx,
+                        #                         'i': i})
 
                         writer_keylist = []
-                        for i in range(numPartitions):
+                        key_per_client = (numPartitions + number_of_clients - 1) / number_of_clients
+                        for i in range(number_of_clients):
                                 writer_keylist.append({'roundIdx': roundIdx,
-                                                'i': i})
+                                                'i': i,
+                                                'key-per-client':key_per_client})
 
-                        write_pool_handler = write_pool.map_async(write_work, writer_keylist)
+                        write_pool_handler = write_pool.map_async(write_work_client, writer_keylist)
                         write_pool_handler_container.append(write_pool_handler)
 
                 if len(write_pool_handler_container) > 0:
@@ -140,6 +168,10 @@ def partition_data():
         numPartitions = int(sys.argv[3])
 
         keylist = []
+        # keylist.append({'taskId': numTasks,
+        #                 'inputs': inputsPerTask,
+        #                 'parts': numPartitions})
+
         for i in range(numTasks):
                 keylist.append({'taskId': i,
                                 'inputs': inputsPerTask,

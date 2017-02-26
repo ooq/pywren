@@ -5,6 +5,7 @@
 
 import pywren
 import boto3
+import md5
 
 if __name__ == "__main__":
     import logging
@@ -32,12 +33,16 @@ if __name__ == "__main__":
                                             "-b"+str(begin),
                                             str(number_of_records),
                                             "/tmp/condaruntime/input/part-" + str(key)])
-            client.upload_file("/tmp/condaruntime/input/part-"+str(key), "sort-data", "input100t/part-" + str(key))
+            keyname = "part-" + str(key)
+            m = md5.new()
+            m.update(keyname)
+            randomized_keyname = m.hexdigest()[:8] + keyname
+            client.upload_file("/tmp/condaruntime/input/part-"+str(key), "sort-input-random", randomized_keyname)
             key = key+1
 
     wrenexec = pywren.default_executor()
-    fut = wrenexec.map(run_command, range(0,1000000,20))
+    fut = wrenexec.map(run_command, range(0,10000,20))
 
+    pywren.wait(fut)
     res = [f.result() for f in fut]
     print res
-
