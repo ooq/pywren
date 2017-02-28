@@ -13,7 +13,7 @@ import md5
 import gc
 import botocore
 
-def partition_data():
+def sort_data():
         def run_command(key):
                 pywren.wrenlogging.default_config('INFO')
                 begin_of_function = time.time()
@@ -40,7 +40,7 @@ def partition_data():
                 clients = []
                 for client_id in range(number_of_clients):
                         clients.append(boto3.client('s3', 'us-west-2'))
-                read_pool_handler_container = []
+                write_pool_handler_container = []
                 for roundIdx in range(rounds):
                         inputs = []
 
@@ -143,5 +143,5 @@ def partition_data():
 
 
 if __name__ == '__main__':
-        partition_data()
+        sort_data()
 

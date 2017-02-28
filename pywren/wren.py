@@ -572,6 +572,11 @@ class ResponseFuture(object):
             elif exception_args[0] == "OUTATIME":
                 raise Exception("process ran out of time")
             else:
+                print "about to throw exception for call_id ", self.call_id
+                if 'additional_exception_info' in call_status:
+                    print "traceback ", call_status['additional_exception_info']
+                else:
+                    print "no traceback info??"
                 raise Exception(exception_str, *exception_args)
         
         call_output_time = time.time()
@@ -726,6 +731,8 @@ def _wait(fs, THREADPOOL_SIZE):
     def test(f):
         f.result(throw_except=False)
     pool = ThreadPool(THREADPOOL_SIZE)
+    ids = [f.call_id for f in f_to_wait_on]
+    print "ids: ", ids
     pool.map(test, f_to_wait_on)
 
     pool.close()

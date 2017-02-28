@@ -12,6 +12,7 @@ import shutil
 import sys
 from threading import Thread
 import signal
+import traceback
 
 if (sys.version_info > (3, 0)):
     from . import wrenutil
@@ -308,6 +309,8 @@ def generic_handler(event, context_dict):
         # internal runtime exceptions
         response_status['exception'] = str(e)
         response_status['exception_args'] = e.args
+        exc_type, exc_value, exc_traceback = sys.exc_info()
+        response_status['additional_exception_info'] = exc_traceback.format_exc()
     finally:
 
         s3.meta.client.put_object(Bucket=status_key[0], Key=status_key[1], 

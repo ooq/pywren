@@ -51,7 +51,7 @@ def partition_data():
 
                 [t1, t2, t3] = [time.time()] * 3
                 # a total of 10 threads
-                read_pool = ThreadPool(1)
+                read_pool = ThreadPool(3)
                 number_of_clients = 10
                 write_pool = ThreadPool(number_of_clients)
                 clients = []
@@ -60,6 +60,7 @@ def partition_data():
                 write_pool_handler_container = []
                 for roundIdx in range(rounds):
                         inputs = []
+                        gc.collect()
 
                         def read_work(inputId):
                                 keyname = "input/part-" + str(inputId)
@@ -178,9 +179,15 @@ def partition_data():
                                 'inputs': inputsPerTask,
                                 'parts': numPartitions,
                                 'bucket': "sort-data-random-1t"})
+        # a = ['00123']
+        # for i in range(len(a)):
+        #         keylist.append({'taskId': int(a[i]),
+        #         'inputs': inputsPerTask,
+        #         'parts': numPartitions,
+        #         'bucket': "sort-data-random-1t"})
 
         wrenexec = pywren.default_executor()
-        fut = wrenexec.map(run_command, keylist)
+        fut = wrenexec.map_sync_with_rate(run_command, keylist, rate=100)
 
         pywren.wait(fut)
         res = [f.result() for f in fut]
