@@ -10,6 +10,7 @@ from multiprocessing.pool import ThreadPool
 #from multiprocessing import Pool
 import logging
 import md5
+import gc
 
 def partition_data():
         def run_command(key):
@@ -28,6 +29,7 @@ def partition_data():
                 taskPerRound =  3
                 rounds = (inputsPerTask + taskPerRound - 1) / taskPerRound
                 numPartitions = key['parts']
+                bucketName = key['bucket']
 
                 min_value = struct.unpack(">I", "\x00\x00\x00\x00")[0]
                 max_value = struct.unpack(">I", "\xff\xff\xff\xff")[0]
@@ -60,11 +62,11 @@ def partition_data():
                         inputs = []
 
                         def read_work(inputId):
-                                key = "part-" + str(inputId)
+                                keyname = "input/part-" + str(inputId)
                                 m = md5.new()
-                                m.update(key)
-                                randomized_key = m.hexdigest()[:8] + key
-                                obj = client.get_object(Bucket='sort-input-random', Key=randomized_key)
+                                m.update(keyname)
+                                randomized_keyname = "input/" + m.hexdigest()[:8] + "-part-" + str(inputId)
+                                obj = client.get_object(Bucket=bucketName, Key=randomized_keyname)
                                 fileobj = obj['Body']
                                 data = np.fromstring(fileobj.read(), dtype = recordType)
                                 inputs.append(data)
@@ -79,6 +81,7 @@ def partition_data():
                         
                         # before processing, make sure all data is read
                         read_pool.map(read_work, inputIds)
+                        gc.collect()
 
                         records = np.concatenate(inputs)
 
@@ -104,6 +107,7 @@ def partition_data():
                                         logger.info('write time < ' + str(twait_end-t3) + " faster than read " + str(t1-t3))
 
                         t2 = time.time()
+                        gc.collect()
                         outputs = [[] for i in range(0, numPartitions)]
                         for idx,record in enumerate(records):
                                         #if idx % 100000 == 0:
@@ -112,14 +116,14 @@ def partition_data():
                         t3 = time.time()
                         logger.info('paritioning time: ' + str(t3-t2))
 
-                        def write_work(writer_key):
-                                mapId = rounds * taskId + writer_key['roundIdx']
-                                key = "part-" + str(mapId) + "-" + str(writer_key['i'])
-                                m = md5.new()
-                                m.update(key)
-                                randomized_key = m.hexdigest()[:8] + key
-                                body = np.asarray(outputs[ps[i]]).tobytes()
-                                client.put_object(Bucket='sort-data-random-test', Key=randomized_key, Body=body)
+                        # def write_work(writer_key):
+                        #         mapId = rounds * taskId + writer_key['roundIdx']
+                        #         key = "part-" + str(mapId) + "-" + str(writer_key['i'])
+                        #         m = md5.new()
+                        #         m.update(key)
+                        #         randomized_keyname = m.hexdigest()[:8] + key
+                        #         body = np.asarray(outputs[ps[i]]).tobytes()
+                        #         client.put_object(Bucket='sort-data-random-test', Key=randomized_keyname, Body=body)
                         def write_work_client(writer_key):
                                 client_id = writer_key['i']
                                 local_client = clients[client_id]
@@ -127,12 +131,12 @@ def partition_data():
                                 key_per_client = writer_key['key-per-client']
 
                                 for i in range(key_per_client*client_id, min(key_per_client*(client_id+1), numPartitions)):
-                                        key = "part-" + str(mapId) + "-" + str(i)
+                                        keyname = "shuffle/part-" + str(mapId) + "-" + str(i)
                                         m = md5.new()
-                                        m.update(key)
-                                        randomized_key = m.hexdigest()[:8] + key
+                                        m.update(keyname)
+                                        randomized_keyname = "shuffle/" + m.hexdigest()[:8] + "-part-" + str(mapId) + "-" + str(i)
                                         body = np.asarray(outputs[ps[i]]).tobytes()
-                                        local_client.put_object(Bucket='sort-data-random-test', Key=randomized_key, Body=body)
+                                        local_client.put_object(Bucket=bucketName, Key=randomized_keyname, Body=body)
 
                         # writer_keylist = []
                         # for i in range(numPartitions):
@@ -168,14 +172,12 @@ def partition_data():
         numPartitions = int(sys.argv[3])
 
         keylist = []
-        # keylist.append({'taskId': numTasks,
-        #                 'inputs': inputsPerTask,
-        #                 'parts': numPartitions})
 
         for i in range(numTasks):
                 keylist.append({'taskId': i,
                                 'inputs': inputsPerTask,
-                                'parts': numPartitions})
+                                'parts': numPartitions,
+                                'bucket': "sort-data-random-1t"})
 
         wrenexec = pywren.default_executor()
         fut = wrenexec.map(run_command, keylist)
