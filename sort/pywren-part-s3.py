@@ -7,6 +7,7 @@ import boto3
 import pywren
 import cPickle as pickle
 from multiprocessing.pool import ThreadPool
+from multiprocessing import Manager
 #from multiprocessing import Pool
 import logging
 import md5
@@ -51,25 +52,30 @@ def partition_data():
 
                 [t1, t2, t3] = [time.time()] * 3
                 # a total of 10 threads
-                read_pool = ThreadPool(3)
+                read_pool = ThreadPool(1)
                 number_of_clients = 10
                 write_pool = ThreadPool(number_of_clients)
                 clients = []
                 for client_id in range(number_of_clients):
                         clients.append(boto3.client('s3', 'us-west-2'))
                 write_pool_handler_container = []
+                #manager = Manager()
                 for roundIdx in range(rounds):
                         inputs = []
-                        gc.collect()
 
-                        def read_work(inputId):
+                        def read_work(read_key):
+                                inputId = read_key['inputId']
                                 keyname = "input/part-" + str(inputId)
                                 m = md5.new()
                                 m.update(keyname)
                                 randomized_keyname = "input/" + m.hexdigest()[:8] + "-part-" + str(inputId)
+                                logger.info("fetching " + randomized_keyname)
                                 obj = client.get_object(Bucket=bucketName, Key=randomized_keyname)
+                                logger.info("fetching " + randomized_keyname + " done")
                                 fileobj = obj['Body']
                                 data = np.fromstring(fileobj.read(), dtype = recordType)
+                                logger.info("conversion " + randomized_keyname + " done")
+                                logger.info("size " + randomized_keyname + "  " + str(len(data)))
                                 inputs.append(data)
 
                         startId = taskId*inputsPerTask + roundIdx*taskPerRound
@@ -79,12 +85,19 @@ def partition_data():
                                 break
 
                         logger.info("Range for round " + str(roundIdx) + " is (" + str(startId) + "," + str(endId) + ")")
-                        
+
+                        read_keylist = []
+                        for i in range(len(inputIds)):
+                            read_keylist.append({'inputId': inputIds[i],
+                                                   'i': i})
+
                         # before processing, make sure all data is read
-                        read_pool.map(read_work, inputIds)
-                        gc.collect()
+                        read_pool.map(read_work, read_keylist)
+                        logger.info("read call done ")
+                        logger.info("size of inputs", len(inputs))
 
                         records = np.concatenate(inputs)
+                        gc.collect()
 
                         t1 = time.time()
                         logger.info('read time ' + str(t1-t3))
