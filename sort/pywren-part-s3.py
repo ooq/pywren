@@ -200,7 +200,7 @@ def partition_data():
         #         'bucket': "sort-data-random-1t"})
 
         wrenexec = pywren.default_executor()
-        fut = wrenexec.map_sync_with_rate(run_command, keylist, rate=100)
+        fut = wrenexec.map_sync_with_rate_and_retries(run_command, keylist, rate=100)
 
         pywren.wait(fut)
         res = [f.result() for f in fut]
