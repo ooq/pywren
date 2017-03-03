@@ -20,8 +20,8 @@ def create_call_id():
 def create_keys(bucket, prefix, callset_id, call_id):
     data_key = (bucket, os.path.join(prefix, callset_id, call_id, "data.pickle"))
     output_key = (bucket, os.path.join(prefix, callset_id, call_id, "output.pickle"))
-    status_key = (bucket, os.path.join(prefix, callset_id, call_id, "status.json"))
-    return data_key, output_key, status_key
+    status_key_prefix = (bucket, os.path.join(prefix, callset_id, call_id, "status"))
+    return data_key, output_key, status_key_prefix
 
 def create_func_key(bucket, prefix, callset_id):
     func_key = (bucket, os.path.join(prefix, callset_id, "func.json"))
@@ -52,11 +52,14 @@ def get_callset_done(bucket, prefix, callset_id):
                                            MaxKeys=1000)
     
     status_keys = []
+    succeeded_keys_keys = []
 
     while True:
         for k in s3res['Contents']:
             if "status.json" in k['Key']:
                 status_keys.append(k['Key'])
+            if "status-success.json" in k['Key']:
+                succeeded_keys_keys.append(k['Key'])
 
         if 'NextContinuationToken' in s3res:
             continuation_token = s3res['NextContinuationToken']
@@ -66,7 +69,13 @@ def get_callset_done(bucket, prefix, callset_id):
         else:
             break
 
-    call_ids = [k[len(key_prefix)+1:].split("/")[0] for k in status_keys]
-    return call_ids
-        
-        
+    succeeded_call_ids = set([k[len(key_prefix)+1:].split("/")[0] for k in succeeded_keys_keys])
+    other_calls_attempts = {}
+    for k in status_keys:
+        call_id = k[len(key_prefix)+1:].split("/")[0]
+        if call_id not in succeeded_call_ids:
+            if call_id not in other_calls_attempts:
+                other_calls_attempts[call_id] = 1
+            else:
+                other_calls_attempts[call_id] += 1
+    return succeeded_call_ids, other_calls_attempts
