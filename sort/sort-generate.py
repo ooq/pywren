@@ -29,7 +29,7 @@ if __name__ == "__main__":
             m = md5.new()
             m.update(keyname)
             randomized_keyname = "input/" + m.hexdigest()[:8] + "-part-" + str(key)
-            client.put_object(Body = data, Bucket = "sort-data-random-1t", Key = randomized_keyname)
+            client.put_object(Body = data, Bucket = "sort-data-random", Key = randomized_keyname)
             logger.info(str(key) + "th object uploaded.")
             gc_start = time.time()
             gc.collect()
@@ -38,7 +38,7 @@ if __name__ == "__main__":
             key = key + 1
 
     wrenexec = pywren.default_executor()
-    fut = wrenexec.map(run_command, range(0,10000,20))
+    fut = wrenexec.map_sync_with_rate_and_retries(run_command, range(0,1,20), rate=100)
 
     pywren.wait(fut)
     res = [f.result() for f in fut]

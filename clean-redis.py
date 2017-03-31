@@ -32,12 +32,15 @@ def f(key):
 	#r1 = redis.StrictRedisCluster(startup_nodes=startup_nodes, decode_responses=True)
 	#redisurl1 = "pywren-sharding-test-0001-001.oapxhs.0001.usw2.cache.amazonaws.com"
 	#redisurl1 = "pywren-redis.oapxhs.ng.0001.usw2.cache.amazonaws.com"
-	r1 = redis.StrictRedis(host=redisnode, port=6379, db=0)
+	startup_nodes = [{"host": redisnode, "port": 6379}]
+	r1 = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
+	#r1 = redis.StrictRedis(host=redisnode, port=6379, db=0)
 	#r1 = redis.StrictRedis(host=redisurl1, port=6379, db=0)
 	#r1 = redis.StrictRedisCluster(startup_nodes=startup_nodes)
 	#r1.set("foo", "bar")
+	sizes = r1.dbsize()
 	r1.flushall()
-	return r1.get("foo")
+	return sizes
 	#return 1
 	#return 1
 	#raise Exception("1", "2")

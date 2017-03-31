@@ -9,7 +9,6 @@ import boto3
 import botocore
 import uuid
 import redis
-from rediscluster import StrictRedisCluster
 
 import time
 import pywren
@@ -24,7 +23,6 @@ import exampleutils
 import md5
 
 from collections import deque
-from multiprocessing.pool import ThreadPool
 
 @click.group()
 def cli():
@@ -51,52 +49,25 @@ def write(workers, redis_hostname, redis_port, redis_password,
     print "num_per_lambda=", num_per_lambda
 
     def run_command(my_worker_id):
-        startup_nodes = [{"host": redis_hostname, "port": redis_port}]
-        redis_client = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
-
-        '''
         redis_client = redis.StrictRedis(host=redis_hostname, port=redis_port,
             password=redis_password, db=0)
-        '''
         d = exampleutils.RandomDataGenerator(value_size).read(value_size)
 
-        #pool = ThreadPool(10)
-
-
-        def work():
-            redis_client = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
-            for i in xrange(num_per_lambda):
-                key_name = key_prefix + '_' + str(i)
-                #m = md5.new()
-                #m.update(key_name)
-                #randomized_keyname = m.hexdigest()[:8] + "-part-" + str(key_name)
-                # Add some entropy to the values
-                d1 = d + str(my_worker_id) + str(i)
-                try:
-                    redis_client.append(key_name, d1)
-                except redis.exceptions.RedisError:
-                    print("redis error")
-                    # return 0, 0, 0, 0
-                    #logger = logging.getLogger(__name__)
-                    #logger.warn("exception in redis")
-
         t1 = time.time()
-        work()
-        #pool.map(work, range(10))
-        # for i in xrange(num_per_lambda):
-        #     key_name = key_prefix + '_' + str(i)
-        #     m = md5.new()
-        #     m.update(key_name)
-        #     randomized_keyname = m.hexdigest()[:8] + "-part-" + str(key_name)
-        #     # Add some entropy to the values
-        #     d1 = d + str(my_worker_id) + str(i)
-        #     try:
-        #         redis_client.append(key_name, d1)
-        #     except redis.exceptions.RedisError:
-        #         print("redis error")
-        #         # return 0, 0, 0, 0
-        #         #logger = logging.getLogger(__name__)
-        #         #logger.warn("exception in redis")
+        for i in xrange(num_per_lambda):
+            key_name = key_prefix + '_' + str(i)
+            m = md5.new()
+            m.update(key_name)
+            randomized_keyname = m.hexdigest()[:8] + "-part-" + str(key_name)
+            # Add some entropy to the values
+            d1 = d + str(my_worker_id) + str(i)
+            try:
+                redis_client.delete(randomized_keyname)
+            except redis.exceptions.RedisError:
+                print("redis error")
+                return 0, 0, 0, 0
+                #logger = logging.getLogger(__name__)
+                #logger.warn("exception in redis")
 
         t2 = time.time()
 
@@ -110,7 +81,7 @@ def write(workers, redis_hostname, redis_port, redis_password,
 
     res = [f.result() for f in fut]
     print res
-    pickle.dump(res, open(redis_hostname + ".032901.pickle."  + str(workers), 'w'))
+    #pickle.dump(res, open(redis_hostname + ".032901.pickle."  + str(workers), 'w'))
 
 if __name__ == '__main__':
     cli()

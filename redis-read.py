@@ -73,7 +73,7 @@ def write(workers, redis_hostname, redis_port, redis_password,
                 # Add some entropy to the values
                 d1 = d + str(my_worker_id) + str(i)
                 try:
-                    redis_client.append(key_name, d1)
+                    redis_client.get(key_name)
                 except redis.exceptions.RedisError:
                     print("redis error")
                     # return 0, 0, 0, 0

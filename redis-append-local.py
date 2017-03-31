@@ -5,25 +5,20 @@ Saves the output in a pickled list of throughputs.
 """
 
 import time
-import boto3 
-import botocore
 import uuid
 import redis
 from rediscluster import StrictRedisCluster
 
 import time
-import pywren
 import subprocess
 import logging
 import sys
 import hashlib
-import cPickle as pickle
 import click
 import exampleutils
 
 import md5
 
-from collections import deque
 from multiprocessing.pool import ThreadPool
 
 @click.group()
@@ -60,16 +55,16 @@ def write(workers, redis_hostname, redis_port, redis_password,
         '''
         d = exampleutils.RandomDataGenerator(value_size).read(value_size)
 
-        #pool = ThreadPool(10)
+        pool = ThreadPool(10)
 
 
-        def work():
+        def work(key):
             redis_client = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
-            for i in xrange(num_per_lambda):
+            for i in xrange(key, num_per_lambda, 2):
                 key_name = key_prefix + '_' + str(i)
-                #m = md5.new()
-                #m.update(key_name)
-                #randomized_keyname = m.hexdigest()[:8] + "-part-" + str(key_name)
+                m = md5.new()
+                m.update(key_name)
+                randomized_keyname = m.hexdigest()[:8] + "-part-" + str(key_name)
                 # Add some entropy to the values
                 d1 = d + str(my_worker_id) + str(i)
                 try:
@@ -81,8 +76,7 @@ def write(workers, redis_hostname, redis_port, redis_password,
                     #logger.warn("exception in redis")
 
         t1 = time.time()
-        work()
-        #pool.map(work, range(10))
+        pool.map(work, range(2))
         # for i in xrange(num_per_lambda):
         #     key_name = key_prefix + '_' + str(i)
         #     m = md5.new()
@@ -104,13 +98,11 @@ def write(workers, redis_hostname, redis_port, redis_password,
 
         return t1, t2, (t2-t1), write_tput
 
-    wrenexec = pywren.default_executor()
+    pool = ThreadPool(workers)
 
-    fut = wrenexec.map(run_command, range(workers))
+    res = pool.map(run_command, range(workers))
 
-    res = [f.result() for f in fut]
     print res
-    pickle.dump(res, open(redis_hostname + ".032901.pickle."  + str(workers), 'w'))
 
 if __name__ == '__main__':
     cli()
