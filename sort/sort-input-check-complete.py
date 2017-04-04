@@ -69,3 +69,4 @@ if __name__ == "__main__":
     found = sum([a.values().count(True) for a in res])
     miss = sum([a.values().count(False) for a in res])
     print("Found : " + str(found) + " Miss : " + str(miss))
+    pickle.dump(res, open('sort-input.pickle', 'wb'))    

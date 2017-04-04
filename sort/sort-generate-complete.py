@@ -73,8 +73,8 @@ if __name__ == "__main__":
             tasks.append(task)
             task = [] 
     #print tasks   
-    #fut = wrenexec.map_sync_with_rate_and_retries(run_command, tasks, rate=2000)
+    fut = wrenexec.map_sync_with_rate_and_retries(run_command, tasks, rate=2000)
 
-    #pywren.wait(fut)
-    #res = [f.result() for f in fut]
+    pywren.wait(fut)
+    res = [f.result() for f in fut]
     #print res
