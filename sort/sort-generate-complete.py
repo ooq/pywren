@@ -2,13 +2,14 @@ import pywren
 import boto3
 import md5
 import numpy as np
+import cPickle as pickle
 
 if __name__ == "__main__":
     import logging
     import subprocess
     import gc
     import time
-    def run_command(key):
+    def run_command(keylist):
         pywren.wrenlogging.default_config()
         logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ if __name__ == "__main__":
                                         "a+x",
                                         "/tmp/condaruntime/gensort"])
 
-        for i in range(0,5):
+        for key in keylist:
             number_of_records = 1000 * 1000
             begin = key * number_of_records
             data = subprocess.check_output(["/tmp/condaruntime/gensort",
@@ -38,10 +39,9 @@ if __name__ == "__main__":
             gc_start = time.time()
             gc.collect()
             gc_end = time.time()
-            #logger.info("GC takes " + str(gc_end - gc_start) + " seconds.")
-            key = key + 1
-
+        return keylist
     wrenexec = pywren.default_executor(shard_runtime=True)
+    
     #fp = open("../finished_calls.txt","r")
     #finished_calls = []
     #data = fp.readline()
@@ -56,11 +56,25 @@ if __name__ == "__main__":
     #passed_tasks = []
     #for iii in unfinished_tasks:
     #    passed_tasks.append(int(iii))
-    passed_tasks = range(0,1000000,5)
-    #passed_tasks = range(1)
+    #passed_tasks = range(0,1000000,5)
+    passed_tasks = range(1)
+    ut = pickle.load(open("sort-input.pickle", "rb"))
     
-    fut = wrenexec.map_sync_with_rate_and_retries(run_command, passed_tasks, rate=2000)
+    utl = []
+    for uti in ut:
+        for b in uti:
+            if not uti[b]:
+                utl.append(b)
+    tasks = []
+    task = []
+    for uti in utl:
+        task.append(uti)
+        if len(task) == 5:
+            tasks.append(task)
+            task = [] 
+    #print tasks   
+    #fut = wrenexec.map_sync_with_rate_and_retries(run_command, tasks, rate=2000)
 
-    pywren.wait(fut)
-    res = [f.result() for f in fut]
-    print res
+    #pywren.wait(fut)
+    #res = [f.result() for f in fut]
+    #print res
