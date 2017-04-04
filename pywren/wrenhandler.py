@@ -14,6 +14,7 @@ from threading import Thread
 import signal
 import traceback
 import random
+from six.moves import urllib
 
 if (sys.version_info > (3, 0)):
     from . import wrenutil
@@ -59,6 +60,7 @@ def download_runtime_if_necessary(s3conn, runtime_s3_bucket, runtime_s3_key):
     """
 
     # get runtime etag
+    logger.info("download through S3")
     runtime_meta = s3conn.meta.client.head_object(Bucket=runtime_s3_bucket, 
                                                   Key=runtime_s3_key)
     # etags have strings (double quotes) on each end, so we strip those
@@ -92,8 +94,8 @@ def download_runtime_if_necessary(s3conn, runtime_s3_bucket, runtime_s3_key):
                                     Key=runtime_s3_key)
 
     condatar = tarfile.open(mode= "r:gz", 
-                            fileobj = wrenutil.WrappedStreamingBody(res['Body'], 
-                                                                    res['ContentLength']))
+                        fileobj = wrenutil.WrappedStreamingBody(res['Body'], 
+                                                                res['ContentLength']))
 
 
     condatar.extractall(runtime_etag_dir)
@@ -102,8 +104,63 @@ def download_runtime_if_necessary(s3conn, runtime_s3_bucket, runtime_s3_key):
     os.symlink(expected_target, CONDA_RUNTIME_DIR)
     return False
 
+def download_runtime_if_necessary_2(s3conn, runtime_s3_bucket, runtime_s3_key):
+    """
+    Download the runtime if necessary
+
+    return True if cached, False if not (download occured)
+
+    """
+
+    # get runtime etag
+    #runtime_meta = s3conn.meta.client.head_object(Bucket=runtime_s3_bucket, 
+    #                                             Key=runtime_s3_key)
+    # etags have strings (double quotes) on each end, so we strip those
+    logger.info("download through cloudfront")
+    ETag = "1c5951f1749d59059af5cb2e0f7a2514-17"
+    logger.debug("The etag is ={}".format(ETag))
+    runtime_etag_dir = os.path.join(RUNTIME_LOC, ETag)
+    logger.debug("Runtime etag dir={}".format(runtime_etag_dir))
+    expected_target = os.path.join(runtime_etag_dir, 'condaruntime')    
+    logger.debug("Expected target={}".format(expected_target))
+    # check if dir is linked to correct runtime
+    if os.path.exists(RUNTIME_LOC):
+        if os.path.exists(CONDA_RUNTIME_DIR) :
+            if not os.path.islink(CONDA_RUNTIME_DIR):
+                raise Exception("{} is not a symbolic link, your runtime config is broken".format(CONDA_RUNTIME_DIR))
+
+            existing_link = os.readlink(CONDA_RUNTIME_DIR)
+            if existing_link == expected_target:
+                logger.debug("found existing {}, not re-downloading".format(ETag))
+                return True
+
+    logger.debug("{} not cached, downloading".format(ETag))
+    # didn't cache, so we start over
+    if os.path.islink(CONDA_RUNTIME_DIR):
+        os.unlink(CONDA_RUNTIME_DIR)
+
+    shutil.rmtree(RUNTIME_LOC, True)
+    
+    os.makedirs(runtime_etag_dir)
+    
+    filename = "http://d2o27wec4s0n6u.cloudfront.net/pywren.runtime/pywren_runtime-2.7-default.tar.gz"
+    #filename = "http://qifan-public.s3.amazonaws.com/pywren.runtime/pywren_runtime-2.7-default.tar.gz"
+
+    nn = urllib.request.urlopen(filename)
+    logger.debug("before untar")
+    condatar = tarfile.open(fileobj=nn, mode="r|gz")
+    logger.debug("after untar " + runtime_etag_dir)
+
+    condatar.extractall(runtime_etag_dir)
+    logger.debug("download succeeded")
+
+    # final operation
+    os.symlink(expected_target, CONDA_RUNTIME_DIR)
+    return False
+
+
 def aws_lambda_handler(event, context):
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.ERROR)
     context_dict = {
         'aws_request_id' : context.aws_request_id, 
         'log_group_name' : context.log_group_name, 
@@ -235,9 +292,12 @@ def generic_handler(event, context_dict):
 
         response_status['runtime_s3_key_used'] = runtime_s3_key_used
         
+        tstartd = time.time()
         runtime_cached = download_runtime_if_necessary(s3, runtime_s3_bucket, 
                                                        runtime_s3_key_used)
+        tendd = time.time()
         logger.info("Runtime ready, cached={}".format(runtime_cached))
+        response_status['download_time'] = tendd - tstartd
         response_status['runtime_cached'] = runtime_cached
 
         cwd = os.getcwd()
@@ -334,7 +394,8 @@ def generic_handler(event, context_dict):
                 response_status['exception'] = str(e)
                 response_status['exception_args'] = e.args
     finally:
-        status_key_full = status_key[1] + ".json." + str(attempt_id)
+        logger.error(response_status)
+        status_key_full = status_key[1] + ".json." + str(event['attempt_id'])
         s3.meta.client.put_object(Bucket=status_key[0], Key=status_key_full,
                                   Body=json.dumps(response_status))
     
