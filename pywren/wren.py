@@ -246,6 +246,7 @@ class Executor(object):
             host_job_meta['data_upload_time'] = time.time() - agg_upload_time
             host_job_meta['data_upload_timestamp'] = time.time()
         else:
+            print("data size in bytes " + str(data_size_bytes))
             # FIXME add warning that you wanted data all as one but
             # it exceeded max data size
             pass
@@ -308,14 +309,20 @@ class Executor(object):
                                          overwrite_invoke_args = overwrite_invoke_args)
 
         pool = ThreadPool(min(invoke_pool_threads, len(call_indices)))
+        #pool = ThreadPool(1)
         call_result_objs = []
+        #last_invoke = time.time()
         for (i, attempt_id) in call_indices:
             call_id = "{:05d}".format(i)
 
             data_byte_range = None
             if s3_agg_data_key is not None:
                 data_byte_range = agg_data_ranges[i]
-
+            
+            #elapsed = time.time() - last_invoke
+            #if elapsed < 0.025:
+            #    time.sleep(0.025 - elapsed)
+            #last_invoke = time.time()
 
             cb = pool.apply_async(invoke, (data_strs[i], callset_id,
                                            call_id, attempt_id, s3_func_key,
@@ -475,8 +482,12 @@ class Executor(object):
 
         callset_id, s3_agg_data_key, s3_func_key, data_strs, host_job_meta, agg_data_ranges \
             = self.prepare(func, iterdata, data_all_as_one)
+        ever_failed = 0
+        ever_suc = 0
 
         while len(calls_queue) > 0 or len(fs_running) > 0:
+            print("queue length: " + str(len(calls_queue)) + " running: " + str(len(fs_running)))
+            print("ever failed: " + str(ever_failed) + " ever suc: " + str(ever_suc))
             # invoking more calls
             if num_available_workers > 0 and len(calls_queue) > 0:
                 num_calls_to_invoke = min(num_available_workers, len(calls_queue))
@@ -499,7 +510,11 @@ class Executor(object):
             else:
                 fs_success, fs_running, fs_failed = my_wait(fs_running,
                                                               return_when=ANY_COMPLETED)
-                # print "len of {} {} {} ".format(len(fs_success), len(fs_running), len(fs_failed))
+                print "after wait len of suc {} r {} f {} ".format(len(fs_success), len(fs_running), len(fs_failed))
+                ever_failed += len(fs_failed)
+                if ever_failed > 10000:
+                    exit()
+                ever_suc += len(fs_success)
                 calls_queue += [(int(f.call_id), f.attempts_made, f) for f in fs_failed]
                 num_available_workers += len(fs_success + fs_failed)
 
@@ -938,7 +953,7 @@ def _wait_status(fs, THREADPOOL_SIZE):
         f.result(throw_except=False)
     pool = ThreadPool(THREADPOOL_SIZE)
     ids = [f.call_id for f in f_to_wait_on]
-    print "ids: ", ids
+    #print "ids: ", ids
     pool.map(test, f_to_wait_on)
 
     pool.close()
