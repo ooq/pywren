@@ -72,6 +72,7 @@ if __name__ == "__main__":
         if len(task) == 5:
             tasks.append(task)
             task = [] 
+    tasks.append(task)
     #print tasks   
     fut = wrenexec.map_sync_with_rate_and_retries(run_command, tasks, rate=2000)
 

@@ -9,7 +9,7 @@ if __name__ == "__main__":
     import subprocess
     import gc
     import time
-    def run_command(keylist)
+    def run_command(keylist):
         pywren.wrenlogging.default_config()
         logger = logging.getLogger(__name__)
 
@@ -24,8 +24,11 @@ if __name__ == "__main__":
             m.update(keyname)
             randomized_keyname = "input/" + m.hexdigest()[:8] + "-part-" + str(key)
             try:
-                client.head_object(Bucket = "sort-data-random", Key = randomized_keyname)
-                results[key] = True    
+                info = client.head_object(Bucket = "sort-data-random", Key = randomized_keyname)
+                if info['ContentLength'] == 100000000:
+                    results[key] = True
+                else:
+                    results[key] = False
             except botocore.exceptions.ClientError as e:
                 results[key] = False
         return results
@@ -47,7 +50,6 @@ if __name__ == "__main__":
     #for iii in unfinished_tasks:
     #    passed_tasks.append(int(iii))
     #passed_tasks = range(0,1000000,5)
-    passed_tasks = range(1)
     ut = pickle.load(open("sort-input.pickle", "rb"))
     utl = []
     for uti in ut:
@@ -58,9 +60,10 @@ if __name__ == "__main__":
     task = []
     for uti in utl:
         task.append(uti)
-        if len(task) == 5:
+        if len(task) == 100:
             tasks.append(task)
-            task = [] 
+            task = []
+    tasks.append(task)
     #print tasks   
     fut = wrenexec.map_sync_with_rate_and_retries(run_command, tasks, rate=2000)
 
@@ -69,4 +72,4 @@ if __name__ == "__main__":
     found = sum([a.values().count(True) for a in res])
     miss = sum([a.values().count(False) for a in res])
     print("Found : " + str(found) + " Miss : " + str(miss))
-    pickle.dump(res, open('sort-input.pickle', 'wb'))    
+    #pickle.dump(res, open('sort-input.pickle', 'wb'))    
