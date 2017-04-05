@@ -15,11 +15,11 @@ import s3_benchmark_con as s3_benchmark
 
 def ruffus_params():
     #for workers in [1, 10, 30, 100, 300, 600, 1000, 2000, 2800]:
-    for workers in [6002]:
+    for workers in [6007]:
         for seed in range(1):
             for mb_per_file in [1000]: # 10, 100, 1000]:
         
-                prefix = "con7_mulf_microbench.{}.{}.{}".format(workers, seed, 
+                prefix = "con_microbench.{}.{}.{}".format(workers, seed, 
                                                              mb_per_file)
                 outfile = prefix + ".pickle"
                 yield None, outfile, workers, seed, mb_per_file

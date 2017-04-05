@@ -27,7 +27,7 @@ def write(bucket_name, mb_per_file, number, key_prefix,
 
     def run_command(key_name):
         t1 = time.time()
-        time.sleep(200)        
+        time.sleep(100)        
         t2 = time.time()
 
 
