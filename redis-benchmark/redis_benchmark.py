@@ -19,6 +19,7 @@ import exampleutils
 import botocore
 import md5
 from rediscluster import StrictRedisCluster
+import random
 
 @click.group()
 def cli():
@@ -28,7 +29,7 @@ def cli():
 def write(bucket_name, mb_per_file, number, key_prefix, 
           region):
     def clean_redis(key):
-        redisnode = "pywren-redis.oapxhs.clustercfg.usw2.cache.amazonaws.com"
+        redisnode = "pywren-redis-clu.oapxhs.clustercfg.usw2.cache.amazonaws.com"
         startup_nodes = [{"host": redisnode, "port": 6379}]
         r1 = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
         #r1 = redis.StrictRedis(host=redisnode, port=6379, db=0)
@@ -40,9 +41,9 @@ def write(bucket_name, mb_per_file, number, key_prefix,
         return sizes
 
     def run_command(my_worker_id):
-        redis_hostname = "pywren-redis.oapxhs.clustercfg.usw2.cache.amazonaws.com"
+        redis_hostname = "pywren-redis-clu.oapxhs.clustercfg.usw2.cache.amazonaws.com"
         redis_port = 6379
-        value_size = 50000
+        value_size = 5000
         num_per_lambda = 140000
         key_prefix = "pywren_redis"
         startup_nodes = [{"host": redis_hostname, "port": redis_port}]
@@ -55,7 +56,9 @@ def write(bucket_name, mb_per_file, number, key_prefix,
 
         def work():
             redis_client = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
-            for i in xrange(num_per_lambda):
+            alli  = range(num_per_lambda)
+            random.shuffle(alli)
+            for i in alli:
                 key_name = key_prefix + '_' + str(i)
                 #m = md5.new()
                 #m.update(key_name)
