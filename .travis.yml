@@ -20,11 +20,6 @@ install:
     fi
   - bash miniconda.sh -b -p $HOME/miniconda
   - export PATH="$HOME/miniconda/bin:$PATH"
-  - printenv AWS_ACCESS_KEY_ID
-  - printenv AWS_SECRET_ACCESS_KEY
-  - echo $AWS_ACCESS_KEY_ID
-  - echo $AWS_SECRET_ACCESS_KEY
-  - printenv AWS_SECRET_ACCESS_KEY
   - printenv TRAVIS_PULL_REQUEST
   - printenv TRAVIS_PULL_REQUEST_BRANCH
   - printenv TRAVIS_COMMIT
