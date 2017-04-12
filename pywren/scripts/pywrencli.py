@@ -208,7 +208,7 @@ def copy_runtime(ctx, source_bucket, dest_bucket):
 
     s3 = boto3.client("s3", region)
 
-    runtime_s3_bucket = config['runtime']['s3_bucket']
+    runtime_s3_bucket = source_bucket
     runtime_s3_key = config['runtime']['s3_key']
 
     meta_file = runtime_s3_key.replace(".tar.gz", ".meta.json")
