@@ -212,22 +212,25 @@ def copy_runtime(ctx, source_bucket, dest_bucket):
     runtime_s3_key = config['runtime']['s3_key']
 
     meta_file = runtime_s3_key.replace(".tar.gz", ".meta.json")
-    s3.copy_object(Bucket=dest_bucket, Key=meta_file, CopySource={'Bucket': source_bucket,
-                                                          'Key': meta_file})
 
     runtime_meta_info = pywren.runtime.get_runtime_info(runtime_s3_bucket, runtime_s3_key)
     if ('urls' in runtime_meta_info and
             isinstance(runtime_meta_info['urls'], list) and
                 len(runtime_meta_info['urls']) > 1):
-        def copy_func(url):
-            key = "/".join(url.split("/")[3:])
+        urls = runtime_meta_info['urls']
+
+        def copy_func(index):
+            key = "/".join(urls[index].split("/")[3:])
+            new_url = "s3://" + dest_bucket + "/" + key
             print("Copying runtime file: " + key)
             s3.copy_object(Bucket=dest_bucket, Key=key, CopySource={'Bucket': source_bucket,
-                                                                    'Key': key})
-        pool = ThreadPool(min(64, len(runtime_meta_info['urls'])))
-        pool.map(copy_func, runtime_meta_info['urls'])
+                                                                   'Key': key})
+            # update runtime_meta_info
+            urls[index] = new_url
+        pool = ThreadPool(min(64, len(urls)))
+        pool.map(copy_func, range(len(urls)))
         pool.close()
-
+    s3.put_object(Bucket=dest_bucket, Key=meta_file, Body=json.dumps(runtime_meta_info))
 
 @click.command()
 @click.pass_context
