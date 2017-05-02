@@ -15,9 +15,10 @@ import redis_benchmark as s3_benchmark
 
 def ruffus_params():
     #for workers in [1, 10, 30, 100, 300, 600, 1000, 2000, 2800]:
-    for workers in [1, 10, 100, 300, 600, 1000,1500]:
+    #for workers in [100, 300, 600]:
+    for workers in [1000]:
         for seed in range(1):
-            for mb_per_file in [1000]: # 10, 100, 1000]:
+            for mb_per_file in [1]: # 10, 100, 1000]:
         
                 prefix = "redis.rate.{}.{}.{}".format(workers, seed, 
                                                              mb_per_file)

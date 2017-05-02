@@ -2,6 +2,7 @@ import pywren
 import boto3
 import md5
 import numpy as np
+import random
 
 if __name__ == "__main__":
     import logging
@@ -12,9 +13,12 @@ if __name__ == "__main__":
         pywren.wrenlogging.default_config()
         logger = logging.getLogger(__name__)
 
-
+        m = md5.new()
+        genpart = str(random.choice(range(50)))
+        m.update(genpart)
+        genfile = m.hexdigest()[:8] + "-gensort-" + genpart
         client = boto3.client('s3', 'us-west-2')
-        client.download_file('qifan-public', 'gensort', '/tmp/condaruntime/gensort')
+        client.download_file('qifan-public', genfile, '/tmp/condaruntime/gensort')
         res = subprocess.check_output(["chmod",
                                         "a+x",
                                         "/tmp/condaruntime/gensort"])
@@ -56,10 +60,12 @@ if __name__ == "__main__":
     #passed_tasks = []
     #for iii in unfinished_tasks:
     #    passed_tasks.append(int(iii))
-    passed_tasks = range(0,1000000,5)
+    #passed_tasks = range(0,1000000,5)
+    #passed_tasks = range(0,10000,5)
+    passed_tasks = range(0,100000,5)
     #passed_tasks = range(1)
     
-    fut = wrenexec.map_sync_with_rate_and_retries(run_command, passed_tasks, rate=2000)
+    fut = wrenexec.map_sync_with_rate_and_retries(run_command, passed_tasks, rate=1000)
 
     pywren.wait(fut)
     res = [f.result() for f in fut]

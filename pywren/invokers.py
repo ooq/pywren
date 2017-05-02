@@ -5,8 +5,10 @@ import json
 import shutil
 import glob2
 import os
+import random
 from pywren import wrenhandler, wrenutil, local
 from pywren.queues import SQSInvoker
+import time
 
 SOURCE_DIR = os.path.dirname(os.path.abspath(__file__)) 
 
@@ -26,7 +28,8 @@ class LambdaInvoker(object):
         """
         Invoke -- return information about this invocation
         """
-        res = self.lambclient.invoke(FunctionName=self.lambda_function_name, 
+        #res = self.lambclient.invoke(FunctionName=self.lambda_function_name+str(random.randint(0,3)), 
+        res = self.lambclient.invoke(FunctionName=self.lambda_function_name,
                                      Payload = json.dumps(payload), 
                                      InvocationType='Event')
         # FIXME check response

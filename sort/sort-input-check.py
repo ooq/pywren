@@ -36,7 +36,8 @@ if __name__ == "__main__":
         return results
 
     wrenexec = pywren.default_executor(shard_runtime=True)
-    tasks = range(0,1000000,1000)
+    #tasks = range(0,1000000,1000)
+    tasks = range(0,100000, 1000)
     #tasks = range(1)
     fut = wrenexec.map_sync_with_rate_and_retries(run_command, tasks, rate=100)
 

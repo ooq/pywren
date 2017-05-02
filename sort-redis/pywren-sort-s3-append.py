@@ -12,6 +12,7 @@ import logging
 import md5
 import gc
 import botocore
+from rediscluster import StrictRedisCluster
 
 def sort_data():
         def run_command(key):
@@ -32,6 +33,9 @@ def sort_data():
 
                 client = boto3.client('s3', 'us-west-2')
 
+                startup_nodes = [{"host": key['redis'], "port": 6379}]
+                r1 = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
+
                 [t1, t2, t3] = [time.time()] * 3
                 # a total of 10 threads
                 write_pool = ThreadPool(1)
@@ -50,19 +54,22 @@ def sort_data():
                                 reduceId = rounds * taskId + reader_key['roundIdx']
                                 key_per_client = reader_key['key-per-client']
 
-                                for mapId in range(key_per_client*client_id, min(key_per_client*(client_id+1), numPartitions)):
-                                        keyname = "shuffle/part-" + str(mapId) + "-" + str(reduceId)
+                                #for mapId in range(key_per_client*client_id, min(key_per_client*(client_id+1), numPartitions)):
+                                for mapId in range(1):
+                                        keyname = "shuffle/part-" + str(reduceId)
                                         m = md5.new()
                                         m.update(keyname)
-                                        randomized_keyname = "shuffle/" + m.hexdigest()[:8] + "-part-" + str(mapId) + "-" + str(reduceId)
+                                        randomized_keyname = "shuffle/" + m.hexdigest()[:8] + "-part-" + str(reduceId)
                                         try:
-                                            obj = local_client.get_object(Bucket=bucketName, Key=randomized_keyname)
+                                            #obj = local_client.get_object(Bucket=bucketName, Key=randomized_keyname)
+                                            obj = r1.get(randomized_keyname)
                                         except botocore.exceptions.ClientError as e:
                                             logger.info("reading error key " + randomized_keyname)
                                             raise
                                         else:
-                                            fileobj = obj['Body']
-                                            data = np.fromstring(fileobj.read(), dtype = recordType)
+                                            #fileobj = obj['Body']
+                                            #data = np.fromstring(fileobj.read(), dtype = recordType)
+                                            data = np.fromstring(obj, dtype = recordType)
                                             inputs.append(data)
 
                         reader_keylist = []
@@ -87,7 +94,8 @@ def sort_data():
                                         logger.info('write time < ' + str(twait_end-t3) + " faster than read " + str(t1-t3))
 
 
-                        records = np.concatenate(inputs)
+                        #records = np.concatenate(inputs)
+                        records = inputs[0]
                         gc.collect()
 
                         t2 = time.time()
@@ -124,17 +132,20 @@ def sort_data():
         numTasks = int(sys.argv[1])
         worksPerTask = int(sys.argv[2])
         numPartitions = int(sys.argv[3])
+        redisnode = sys.argv[4]
+        rate=int(sys.argv[5])
 
         keylist = []
 
         for i in range(numTasks):
                 keylist.append({'taskId': i,
                                 'works': worksPerTask,
+                                'redis':redisnode,
                                 'parts': numPartitions,
                                 'bucket': "sort-data-random"})
 
         wrenexec = pywren.default_executor()
-        futures = wrenexec.map_sync_with_rate_and_retries(run_command, keylist, rate=1000)
+        futures = wrenexec.map_sync_with_rate_and_retries(run_command, keylist, rate=rate)
 
         pywren.wait(futures)
         results = [f.result() for f in futures]

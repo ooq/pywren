@@ -28,6 +28,5 @@ wrenexec = pywren.default_executor(job_max_runtime=200)
 #wrenexec = pywren.dummy_executor()
 futures = wrenexec.map(f, range(1))
 
-pywren.wait(futures)
 res = [f.result() for f in futures]
 print res

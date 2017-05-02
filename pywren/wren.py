@@ -879,6 +879,7 @@ def my_wait(fs, return_when=ALL_COMPLETED, THREADPOOL_SIZE=64,
             if result_count == N:
                 return fs_dones, fs_notdones
             else:
+                print("sleep in all_completed")
                 time.sleep(WAIT_DUR_SEC)
 
     elif return_when == ANY_COMPLETED:
@@ -888,6 +889,7 @@ def my_wait(fs, return_when=ALL_COMPLETED, THREADPOOL_SIZE=64,
             if len(fs_success + fs_failed) != 0:
                 return fs_success, fs_running, fs_failed
             else:
+                print("sleep in any completed")
                 time.sleep(WAIT_DUR_SEC)
 
     elif return_when == ALWAYS:

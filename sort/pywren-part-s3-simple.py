@@ -52,9 +52,9 @@ def partition_data():
 
                 [t1, t2, t3] = [time.time()] * 3
                 # a total of 10 threads
-                read_pool = ThreadPool(1)
+                #read_pool = ThreadPool(1)
                 number_of_clients = 1
-                write_pool = ThreadPool(number_of_clients)
+                #write_pool = ThreadPool(number_of_clients)
                 clients = []
                 for client_id in range(number_of_clients):
                         clients.append(boto3.client('s3', 'us-west-2'))
@@ -88,11 +88,13 @@ def partition_data():
 
                         read_keylist = []
                         for i in range(len(inputIds)):
-                            read_keylist.append({'inputId': inputIds[i],
-                                                   'i': i})
+                            read_key = {'inputId': inputIds[i],
+                                                   'i': i}
+                            read_keylist.append(read_key.copy())
+                            read_work(read_key)
 
                         # before processing, make sure all data is read
-                        read_pool.map(read_work, read_keylist)
+                        #read_pool.map(read_work, read_keylist)
                         logger.info("read call done ")
                         logger.info("size of inputs" + str(len(inputs)))
 
@@ -109,18 +111,6 @@ def partition_data():
                         t2 = time.time()
                         logger.info('calculating partitions time: ' + str(t2-t1))
 
-                        # before processing the newly read data, make sure outputs are all written out
-                        if len(write_pool_handler_container) > 0:
-                                write_pool_handler = write_pool_handler_container.pop()
-                                twait_start = time.time()
-                                write_pool_handler.wait()
-                                twait_end = time.time()
-                                if twait_end - twait_start > 0.5:
-                                        logger.info('write time = ' + str(twait_end-t3) + " slower than read " + str(t1-t3))
-                                else:
-                                        logger.info('write time < ' + str(twait_end-t3) + " faster than read " + str(t1-t3))
-
-                        t2 = time.time()
                         gc.collect()
                         outputs = [[] for i in range(0, numPartitions)]
                         for idx,record in enumerate(records):
@@ -160,23 +150,12 @@ def partition_data():
                         writer_keylist = []
                         key_per_client = (numPartitions + number_of_clients - 1) / number_of_clients
                         for i in range(number_of_clients):
-                                writer_keylist.append({'roundIdx': roundIdx,
-                                                'i': i,
-                                                'key-per-client':key_per_client})
+                                writer_key = {'roundIdx': roundIdx,
+                                              'i': i,
+                                              'key-per-client':key_per_client}
+                                writer_keylist.append(writer_key.copy())
+                                write_work_client(writer_key)
 
-                        write_pool_handler = write_pool.map_async(write_work_client, writer_keylist)
-                        write_pool_handler_container.append(write_pool_handler)
-
-                if len(write_pool_handler_container) > 0:
-                        write_pool_handler = write_pool_handler_container.pop()
-                        twait_start = time.time()
-                        write_pool_handler.wait()
-                        twait_end = time.time()
-                        logger.info('last write time = ' + str(twait_end-t3))
-                read_pool.close()
-                write_pool.close()
-                read_pool.join()
-                write_pool.join()
 
                 end_of_function = time.time()
                 return begin_of_function, end_of_function

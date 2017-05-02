@@ -12,6 +12,7 @@ from multiprocessing import Manager
 import logging
 import md5
 import gc
+from rediscluster import StrictRedisCluster
 
 def partition_data():
         def run_command(key):
@@ -31,6 +32,9 @@ def partition_data():
                 rounds = (inputsPerTask + taskPerRound - 1) / taskPerRound
                 numPartitions = key['parts']
                 bucketName = key['bucket']
+                startup_nodes = [{"host": key['redis'], "port": 6379}]
+                r1 = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
+
 
                 min_value = struct.unpack(">I", "\x00\x00\x00\x00")[0]
                 max_value = struct.unpack(">I", "\xff\xff\xff\xff")[0]
@@ -145,12 +149,13 @@ def partition_data():
                                 key_per_client = writer_key['key-per-client']
 
                                 for i in range(key_per_client*client_id, min(key_per_client*(client_id+1), numPartitions)):
-                                        keyname = "shuffle/part-" + str(mapId) + "-" + str(i)
+                                        keyname = "shuffle/part-" + str(i)
                                         m = md5.new()
                                         m.update(keyname)
-                                        randomized_keyname = "shuffle/" + m.hexdigest()[:8] + "-part-" + str(mapId) + "-" + str(i)
+                                        randomized_keyname = "shuffle/" + m.hexdigest()[:8] + "-part-" + str(i)
                                         body = np.asarray(outputs[ps[i]]).tobytes()
-                                        local_client.put_object(Bucket=bucketName, Key=randomized_keyname, Body=body)
+                                        #local_client.put_object(Bucket=bucketName, Key=randomized_keyname, Body=body)
+                                        r1.append(randomized_keyname, body)
 
                         # writer_keylist = []
                         # for i in range(numPartitions):
@@ -185,6 +190,8 @@ def partition_data():
         inputsPerTask = int(sys.argv[2])
         numPartitions = int(sys.argv[3])
         taskPerRound = int(sys.argv[4])
+        redisnode = sys.argv[5]
+        rate=int(sys.argv[6])
 
         keylist = []
 
@@ -192,6 +199,7 @@ def partition_data():
                 keylist.append({'taskId': i,
                                 'inputs': inputsPerTask,
                                 'parts': numPartitions,
+                                'redis': redisnode,
                                 'taskPerRound' : taskPerRound,
                                 'bucket': "sort-data-random"})
         # a = ['00123']
@@ -202,7 +210,7 @@ def partition_data():
         #         'bucket': "sort-data-random-1t"})
 
         wrenexec = pywren.default_executor()
-        futures = wrenexec.map_sync_with_rate_and_retries(run_command, keylist, rate=1000)
+        futures = wrenexec.map_sync_with_rate_and_retries(run_command, keylist, rate=rate)
 
         pywren.wait(futures)
         results = [f.result() for f in futures]
