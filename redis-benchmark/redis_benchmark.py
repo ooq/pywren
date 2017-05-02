@@ -19,6 +19,7 @@ import exampleutils
 import botocore
 import md5
 from rediscluster import StrictRedisCluster
+import random
 
 @click.group()
 def cli():
@@ -57,7 +58,9 @@ def write(bucket_name, mb_per_file, number, key_prefix,
 
         def work():
             redis_client = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
-            for i in xrange(num_per_lambda):
+            alli  = range(num_per_lambda)
+            random.shuffle(alli)
+            for i in alli:
                 key_name = key_prefix + '_' + str(i)
                 #m = md5.new()
                 #m.update(key_name)

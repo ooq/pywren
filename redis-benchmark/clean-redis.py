@@ -9,7 +9,7 @@ from rediscluster import StrictRedisCluster
 
 
 def f(key):
-	redisnode = "pywren-redis.oapxhs.clustercfg.usw2.cache.amazonaws.com"
+	redisnode = "pywren-redis-clu.oapxhs.clustercfg.usw2.cache.amazonaws.com"
 	startup_nodes = [{"host": redisnode, "port": 6379}]
 	r1 = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
 	#r1 = redis.StrictRedis(host=redisnode, port=6379, db=0)
