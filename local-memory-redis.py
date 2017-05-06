@@ -41,7 +41,7 @@ def f(key):
 	sizes = r1.dbsize()
         print(sizes)
         info = r1.info()
-        print(info)
+        #print(info)
 	return sizes
 	#return 1
 	#return 1

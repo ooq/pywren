@@ -13,6 +13,7 @@ import md5
 import gc
 import botocore
 from rediscluster import StrictRedisCluster
+import heapq
 
 def sort_data():
         def run_command(key):
@@ -32,11 +33,15 @@ def sort_data():
                 recordType = np.dtype([('key','S10'), ('value', 'S90')])
 
                 client = boto3.client('s3', 'us-west-2')
-
-                startup_nodes = [{"host": key['redis'], "port": 6379}]
-                r1 = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
+                rs = []
+                for redis in key['redis'].split(";"):
+                    startup_nodes = [{"host":redis, "port": 6379}]
+                    r1 = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
+                    rs.append(r1)
+                nrs = len(rs)
 
                 [t1, t2, t3] = [time.time()] * 3
+                [read_time, work_time, write_time] = [0]*3
                 # a total of 10 threads
                 write_pool = ThreadPool(1)
                 number_of_clients = 1
@@ -62,7 +67,8 @@ def sort_data():
                                         randomized_keyname = "shuffle/" + m.hexdigest()[:8] + "-part-" + str(mapId) + "-" + str(reduceId)
                                         try:
                                             #obj = local_client.get_object(Bucket=bucketName, Key=randomized_keyname)
-                                            obj = r1.get(randomized_keyname)
+                                            ridx = int(m.hexdigest()[:8], 16) % nrs
+                                            obj = rs[ridx].get(randomized_keyname)
                                         except botocore.exceptions.ClientError as e:
                                             logger.info("reading error key " + randomized_keyname)
                                             raise
@@ -70,6 +76,7 @@ def sort_data():
                                             #fileobj = obj['Body']
                                             #data = np.fromstring(fileobj.read(), dtype = recordType)
                                             data = np.fromstring(obj, dtype = recordType)
+                                            data.sort(order='key')
                                             inputs.append(data)
 
                         reader_keylist = []
@@ -82,6 +89,7 @@ def sort_data():
                         read_pool.map(read_work, reader_keylist)
                         t1 = time.time()
                         logger.info('read time ' + str(t1-t3))
+                        read_time = t1-t3
 
                         if len(write_pool_handler_container) > 0:
                                 write_pool_handler = write_pool_handler_container.pop()
@@ -93,15 +101,17 @@ def sort_data():
                                 else:
                                         logger.info('write time < ' + str(twait_end-t3) + " faster than read " + str(t1-t3))
 
-
+                        t2 = time.time()
                         records = np.concatenate(inputs)
                         gc.collect()
+                        concat_time = len(records)
 
-                        t2 = time.time()
-                        records.sort(order='key')
+                        records.sort(order='key', kind='mergesort')
+                        
                         t3 = time.time()
                         logger.info('sort time: ' + str(t3-t2))
-
+                        
+                        work_time = t3-t2
                         def write_work(reduceId):
                                 keyname = "output/part-" + str(reduceId)
                                 m = md5.new()
@@ -120,13 +130,14 @@ def sort_data():
                         write_pool_handler.wait()
                         twait_end = time.time()
                         logger.info('last write time = ' + str(twait_end-t3))
+                        write_time = twait_end-t3
                 read_pool.close()
                 write_pool.close()
                 read_pool.join()
                 write_pool.join()
 
                 end_of_function = time.time()
-                return begin_of_function, end_of_function
+                return begin_of_function, end_of_function, read_time, work_time, write_time, concat_time
 
         numTasks = int(sys.argv[1])
         worksPerTask = int(sys.argv[2])
@@ -143,6 +154,8 @@ def sort_data():
                                 'parts': numPartitions,
                                 'bucket': "sort-data-random"})
 
+        #print(run_command(keylist[0]))
+        #return 1 
         wrenexec = pywren.default_executor()
         futures = wrenexec.map_sync_with_rate_and_retries(run_command, keylist, rate=rate)
 
@@ -154,7 +167,8 @@ def sort_data():
         res = {'results' : results,
                'run_statuses' : run_statuses,
                'invoke_statuses' : invoke_statuses}
-        pickle.dump(res, open('sort.s3.sort.output.pickle', 'w'))
+        filename = "redis-sort-sort-con" + str(rate) + ".pickle.breakdown." + str(len(redisnode.split(";")))
+        pickle.dump(res, open(filename, 'w'))
         return res
 
 if __name__ == '__main__':

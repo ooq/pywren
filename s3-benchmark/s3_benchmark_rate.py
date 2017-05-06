@@ -18,6 +18,8 @@ sys.path.append("../")
 import exampleutils
 import botocore
 import md5
+from multiprocessing.pool import ThreadPool
+import random
 
 @click.group()
 def cli():
@@ -27,39 +29,50 @@ def cli():
 def write(bucket_name, mb_per_file, number, key_prefix, 
           region):
 
-    def run_command(key):
-        client = boto3.client("s3")
+    def run_command(mykey):
+        #client = boto3.client("s3")
         t1 = time.time()
         results = {}
         ever_fail = False
-        for i in range(0,7):
-            keyname = "input/part-" + str(key)
-            m = md5.new()
-            m.update(keyname)
-            randomized_keyname = "input/" + m.hexdigest()[:8] + "-part-" + str(key)
-            try:
-                data = client.get_object(Bucket = "sort-data-random", Key = randomized_keyname)['Body'].read()
-                results[key] = True
-            except botocore.exceptions.ClientError as e:
-                results[key] = False
-                ever_fail = True
-            key = key + 1
-        t2 = time.time()
+        def work(x):
+            client = boto3.client("s3")
+            for i in range(0,7):
+                key = random.randint(0,9999)
+                keyname = "input/part-" + str(key)
+                m = md5.new()
+                m.update(keyname)
+                randomized_keyname = "input/" + m.hexdigest()[:8] + "-part-" + str(key)
+                try:
+                    data = client.get_object(Bucket = "sort-data-random", Key = randomized_keyname)['Body'].read()
+                    results[key] = len(data)
+                except botocore.exceptions.ClientError as e:
+                    results[key] = False
+                    ever_fail = True
+        poolsize = 5
+        pool = ThreadPool(poolsize)
+        pool.map(work, [mykey]*poolsize)
+        pool.close()
+        pool.join()
         if ever_fail:
             return t1, t2, 0        
-        return t1, t2, 10.0/(t2-t1) 
+        t2 = time.time()
+        return t1, t2, 8*poolsize/(t2-t1), results
     wrenexec = pywren.default_executor(shard_runtime=True)
 
     # create list of random keys
-    all_keys = range(0, 1000000, 10)
+    all_keys = range(0, 10000, 10)
+    import random
+    random.shuffle(all_keys)
     keynames = list(all_keys[0:number])
+    #run_command(keynames[0])
+    #return
     futures = wrenexec.map_sync_with_rate_and_retries(run_command, keynames, rate=10000)
     
     pywren.wait(futures) 
     results = [f.result() for f in futures]
     run_statuses = [f.run_status for f in futures]
     invoke_statuses = [f.invoke_status for f in futures]
-    #print("write "+ str(results))
+    print("write "+ str(results))
 
 
     res = {'results' : results, 

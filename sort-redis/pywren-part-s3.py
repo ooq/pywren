@@ -32,8 +32,12 @@ def partition_data():
                 rounds = (inputsPerTask + taskPerRound - 1) / taskPerRound
                 numPartitions = key['parts']
                 bucketName = key['bucket']
-                startup_nodes = [{"host": key['redis'], "port": 6379}]
-                r1 = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
+                rs = []
+                for redis in key['redis'].split(";"):
+                    startup_nodes = [{"host": redis, "port": 6379}]
+                    r1 = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
+                    rs.append(r1)
+                nrs = len(rs)
 
 
                 min_value = struct.unpack(">I", "\x00\x00\x00\x00")[0]
@@ -55,6 +59,7 @@ def partition_data():
                 client = boto3.client('s3', 'us-west-2')
 
                 [t1, t2, t3] = [time.time()] * 3
+                [read_time, work_time, write_time] = [0]*3
                 # a total of 10 threads
                 read_pool = ThreadPool(1)
                 number_of_clients = 1
@@ -105,6 +110,7 @@ def partition_data():
 
                         t1 = time.time()
                         logger.info('read time ' + str(t1-t3))
+                        read_time = t1-t3
 
                         if numPartitions == 1:
                                 ps = [0] * len(records)
@@ -112,7 +118,7 @@ def partition_data():
                                 ps = np.searchsorted(boundaries, records['key'])
                         t2 = time.time()
                         logger.info('calculating partitions time: ' + str(t2-t1))
-
+                        #work_time = t2-t1
                         # before processing the newly read data, make sure outputs are all written out
                         if len(write_pool_handler_container) > 0:
                                 write_pool_handler = write_pool_handler_container.pop()
@@ -133,7 +139,7 @@ def partition_data():
                                         outputs[ps[idx]].append(record)
                         t3 = time.time()
                         logger.info('paritioning time: ' + str(t3-t2))
-
+                        work_time = t3-t1
                         # def write_work(writer_key):
                         #         mapId = rounds * taskId + writer_key['roundIdx']
                         #         key = "part-" + str(mapId) + "-" + str(writer_key['i'])
@@ -155,7 +161,8 @@ def partition_data():
                                         randomized_keyname = "shuffle/" + m.hexdigest()[:8] + "-part-" + str(mapId) + "-" + str(i)
                                         body = np.asarray(outputs[ps[i]]).tobytes()
                                         #local_client.put_object(Bucket=bucketName, Key=randomized_keyname, Body=body)
-                                        r1.append(randomized_keyname, body)
+                                        ridx = int(m.hexdigest()[:8], 16) % nrs 
+                                        rs[ridx].set(randomized_keyname, body)
 
                         # writer_keylist = []
                         # for i in range(numPartitions):
@@ -178,13 +185,14 @@ def partition_data():
                         write_pool_handler.wait()
                         twait_end = time.time()
                         logger.info('last write time = ' + str(twait_end-t3))
+                        write_time = twait_end-t3
                 read_pool.close()
                 write_pool.close()
                 read_pool.join()
                 write_pool.join()
 
                 end_of_function = time.time()
-                return begin_of_function, end_of_function
+                return begin_of_function, end_of_function, read_time, work_time, write_time
 
         numTasks = int(sys.argv[1])
         inputsPerTask = int(sys.argv[2])
@@ -220,7 +228,8 @@ def partition_data():
         res = {'results' : results,
                'run_statuses' : run_statuses,
                'invoke_statuses' : invoke_statuses}
-        pickle.dump(res, open('sort.s3.part.output.pickle', 'w'))
+        filename = "redis-sort-part-con" + str(rate) + ".pickle.breakdown." + str(len(redisnode.split(";")))
+        pickle.dump(res, open(filename, 'w'))
         return res
 
 
