@@ -33,7 +33,8 @@ class LambdaInvoker(object):
                                      Payload = json.dumps(payload), 
                                      InvocationType='Event')
         # FIXME check response
-        return {}
+        return res['ResponseMetadata']
+        #return {}
 
     def config(self):
         """

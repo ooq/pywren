@@ -8,11 +8,13 @@ import redis
 from rediscluster import StrictRedisCluster
 
 
+
 def f(key):
-	redisnode = "pywren-redis-clu.oapxhs.clustercfg.usw2.cache.amazonaws.com"
+	#redisnode = "pywren-redis-clu.oapxhs.clustercfg.usw2.cache.amazonaws.com"
+        redisnode = "10.0.12.46"
 	startup_nodes = [{"host": redisnode, "port": 6379}]
-	r1 = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
-	#r1 = redis.StrictRedis(host=redisnode, port=6379, db=0)
+	#r1 = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
+	r1 = redis.StrictRedis(host=redisnode, port=6379, db=0)
 	#r1 = redis.StrictRedis(host=redisurl1, port=6379, db=0)
 	#r1 = redis.StrictRedisCluster(startup_nodes=startup_nodes)
 	#r1.set("foo", "bar")

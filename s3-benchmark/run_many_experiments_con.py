@@ -15,7 +15,7 @@ import s3_benchmark_con as s3_benchmark
 
 def ruffus_params():
     #for workers in [1, 10, 30, 100, 300, 600, 1000, 2000, 2800]:
-    for workers in [2001]:
+    for workers in [2002]:
         for seed in range(1):
             for mb_per_file in [1000]: # 10, 100, 1000]:
         

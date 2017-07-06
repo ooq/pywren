@@ -18,6 +18,7 @@ sys.path.append("../")
 import exampleutils
 import botocore
 import md5
+import redis
 from rediscluster import StrictRedisCluster
 import random
 
@@ -30,9 +31,10 @@ def write(bucket_name, mb_per_file, number, key_prefix,
           region):
     def clean_redis(key):
         redisnode = "pywren-redis-10.oapxhs.clustercfg.usw2.cache.amazonaws.com"
+        redisnode = "10.0.12.46"
         startup_nodes = [{"host": redisnode, "port": 6379}]
-        r1 = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
-        #r1 = redis.StrictRedis(host=redisnode, port=6379, db=0)
+        #r1 = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
+        r1 = redis.StrictRedis(host=redisnode, port=6379, db=0)
         #r1 = redis.StrictRedis(host=redisurl1, port=6379, db=0)
         #r1 = redis.StrictRedisCluster(startup_nodes=startup_nodes)
         #r1.set("foo", "bar")
@@ -42,10 +44,12 @@ def write(bucket_name, mb_per_file, number, key_prefix,
 
     def run_command(my_worker_id):
         redis_hostname = "pywren-redis-10.oapxhs.clustercfg.usw2.cache.amazonaws.com"
+        redisnode = "10.0.12.46"
         redis_port = 6379
         #value_size = 50000
-        value_size = 160000
-        num_per_lambda = 2500
+        #value_size = 160000
+        value_size = 1600
+        num_per_lambda = 25000
         #num_per_lambda = 140000
         key_prefix = "pywren_redis"
         startup_nodes = [{"host": redis_hostname, "port": redis_port}]
@@ -57,7 +61,8 @@ def write(bucket_name, mb_per_file, number, key_prefix,
         d = exampleutils.RandomDataGenerator(value_size).read(value_size)
 
         def work():
-            redis_client = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
+            #redis_client = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
+            redis_client = redis.StrictRedis(host=redisnode, port=6379, db=0)
             alli  = range(num_per_lambda)
             random.shuffle(alli)
             for i in alli:

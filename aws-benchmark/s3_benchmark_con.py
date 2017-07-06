@@ -16,10 +16,6 @@ import click
 import sys
 sys.path.append("../")
 import exampleutils
-import botocore
-import md5
-from multiprocessing.pool import ThreadPool
-import random
 
 @click.group()
 def cli():
@@ -29,44 +25,18 @@ def cli():
 def write(bucket_name, mb_per_file, number, key_prefix, 
           region):
 
-    def run_command(mykey):
-        #client = boto3.client("s3")
+    def run_command(key_name):
         t1 = time.time()
-        results = {}
-        ever_fail = False
-        def work(x):
-            client = boto3.client("s3")
-            for i in range(0,7):
-                key = random.randint(0,9999)
-                keyname = "input/part-" + str(key)
-                m = md5.new()
-                m.update(keyname)
-                randomized_keyname = "input/" + m.hexdigest()[:8] + "-part-" + str(key)
-                try:
-                    data = client.get_object(Bucket = "sort-data-random", Key = randomized_keyname)['Body'].read()
-                    results[key] = len(data)
-                except botocore.exceptions.ClientError as e:
-                    results[key] = False
-                    ever_fail = True
-        poolsize = 5
-        pool = ThreadPool(poolsize)
-        pool.map(work, [mykey]*poolsize)
-        pool.close()
-        pool.join()
-        if ever_fail:
-            return t1, t2, 0        
+        time.sleep(100)        
         t2 = time.time()
-        return t1, t2, 8*poolsize/(t2-t1), results
+
+
+        return t1, t2, 1
+
     wrenexec = pywren.default_executor(shard_runtime=True)
 
     # create list of random keys
-    all_numbers = range(0, 100000, 10)[0:number]
-    all_keys = [i%10000 for i in all_numbers]
-    import random
-    random.shuffle(all_keys)
-    keynames = list(all_keys)
-    #run_command(keynames[0])
-    #return
+    keynames = [ key_prefix + str(uuid.uuid4().get_hex().upper()) for _ in range(number)]
     futures = wrenexec.map_sync_with_rate_and_retries(run_command, keynames, rate=10000)
     
     pywren.wait(futures) 
@@ -74,6 +44,7 @@ def write(bucket_name, mb_per_file, number, key_prefix,
     run_statuses = [f.run_status for f in futures]
     invoke_statuses = [f.invoke_status for f in futures]
     print("write "+ str(results))
+
 
 
     res = {'results' : results, 

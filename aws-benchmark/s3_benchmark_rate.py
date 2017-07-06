@@ -60,11 +60,10 @@ def write(bucket_name, mb_per_file, number, key_prefix,
     wrenexec = pywren.default_executor(shard_runtime=True)
 
     # create list of random keys
-    all_numbers = range(0, 100000, 10)[0:number]
-    all_keys = [i%10000 for i in all_numbers]
+    all_keys = range(0, 10000, 10)
     import random
     random.shuffle(all_keys)
-    keynames = list(all_keys)
+    keynames = list(all_keys[0:number])
     #run_command(keynames[0])
     #return
     futures = wrenexec.map_sync_with_rate_and_retries(run_command, keynames, rate=10000)

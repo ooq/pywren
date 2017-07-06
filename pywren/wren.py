@@ -183,7 +183,7 @@ class Executor(object):
             arg_dict.update(overwrite_invoke_args)
 
         # do the invocation
-        self.invoker.invoke(arg_dict)
+        invoke_res = self.invoker.invoke(arg_dict)
 
         logger.info("call_async {} {} attempt {} lambda invoke complete"
                     .format(callset_id, call_id, attempt_id))
@@ -191,6 +191,7 @@ class Executor(object):
         if attempt_id == 0: # return future if this is the first attempt
             host_job_meta['lambda_invoke_timestamp'] = lambda_invoke_time_start
             host_job_meta['lambda_invoke_time'] = time.time() - lambda_invoke_time_start
+            host_job_meta['invoke_res'] = invoke_res
             host_job_meta.update(self.invoker.config())
             host_job_meta.update(arg_dict)
 
