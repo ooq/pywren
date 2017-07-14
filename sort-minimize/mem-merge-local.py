@@ -106,8 +106,8 @@ def partition_data():
                                 logger.info("conversion " + randomized_keyname + " done")
                                 logger.info("size " + randomized_keyname + "  " + str(len(data)))
                                 i = read_key['i']
-                                records[i*records_per_input : (i+1)*records_per_input] = data
-                                #inputs.append(data)
+                                #records[i*records_per_input : (i+1)*records_per_input] = data
+                                inputs.append(data)
 
                         # before processing, make sure all data is read
                         #read_pool.map(read_work, read_keylist)
@@ -165,19 +165,26 @@ def partition_data():
 
                                 for i in range(len(inputIds)):
                                     part_number = i+1
-                                    part_data = records[i*records_per_input : (i+1)*records_per_input]
+                                    #part_data = records[i*records_per_input : (i+1)*records_per_input]
+                                    part_data = inputs[0]
+                                    part_data_ser = np.asarray(part_data).tobytes()
                                     logger.info('start upload part : ' + str(part_number))
 
                                     part = local_client.upload_part(Bucket=bucketName, Key=randomized_keyname, 
                                                             PartNumber=part_number,
-                                                           UploadId=mpu['UploadId'], Body=np.asarray(part_data).tobytes())
+                                                           UploadId=mpu['UploadId'], Body=part_data_ser)
                                     logger.info('finish upload part : ' + str(part_number))
                                     part_info['Parts'].append({'PartNumber': part_number, 'ETag': part['ETag']})
+                                    del part_data
+                                    del part_data_ser
+                                    del inputs[0]
+                                    
                                     #body = np.asarray(records).tobytes()
                                     #body = np.asarray(outputs[ps[i]]).tobytes()
                                     #local_client.put_object(Bucket=bucketName, Key=randomized_keyname, Body=body)
                                     #ridx = int(m.hexdigest()[:8], 16) % nrs 
                                     #rs[ridx].set(randomized_keyname, body)
+                                    
                                 local_client.complete_multipart_upload(Bucket=bucketName,
                                                                         Key=randomized_keyname, 
                                                                         UploadId=mpu['UploadId'],
