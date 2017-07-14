@@ -152,16 +152,36 @@ def partition_data():
                                 mapId = rounds * taskId + writer_key['roundIdx']
                                 key_per_client = writer_key['key-per-client']
 
-                                for i in range(key_per_client*client_id, min(key_per_client*(client_id+1), numPartitions)):
-                                        keyname = "shuffle/part-" + str(mapId) + "-" + str(i)
-                                        m = md5.new()
-                                        m.update(keyname)
-                                        randomized_keyname = "shuffle/" + m.hexdigest()[:8] + "-part-" + str(mapId) + "-" + str(i)
-                                        body = np.asarray(records).tobytes()
-                                        #body = np.asarray(outputs[ps[i]]).tobytes()
-                                        local_client.put_object(Bucket=bucketName, Key=randomized_keyname, Body=body)
-                                        #ridx = int(m.hexdigest()[:8], 16) % nrs 
-                                        #rs[ridx].set(randomized_keyname, body)
+                                keyname = "shuffle/part-" + str(mapId) + "-" + str(0)
+                                m = md5.new()
+                                m.update(keyname)
+                                randomized_keyname = "shuffle/" + m.hexdigest()[:8] + "-part-" + str(mapId) + "-" + str(0)
+                                
+                                mpu = local_client.create_multipart_upload(Bucket=bucketName, Key=randomized_keyname)
+
+                                part_info = {
+                                    'Parts': []
+                                }
+
+                                for i in range(len(inputIds)):
+                                    part_number = i+1
+                                    part_data = records[i*records_per_input : (i+1)*records_per_input]
+                                    logger.info('start upload part : ' + str(part_number))
+
+                                    part = local_client.upload_part(Bucket=bucketName, Key=randomized_keyname, 
+                                                            PartNumber=part_number,
+                                                           UploadId=mpu['UploadId'], Body=np.asarray(part_data).tobytes())
+                                    logger.info('finish upload part : ' + str(part_number))
+                                    part_info['Parts'].append({'PartNumber': part_number, 'ETag': part['ETag']})
+                                    #body = np.asarray(records).tobytes()
+                                    #body = np.asarray(outputs[ps[i]]).tobytes()
+                                    #local_client.put_object(Bucket=bucketName, Key=randomized_keyname, Body=body)
+                                    #ridx = int(m.hexdigest()[:8], 16) % nrs 
+                                    #rs[ridx].set(randomized_keyname, body)
+                                local_client.complete_multipart_upload(Bucket=bucketName,
+                                                                        Key=randomized_keyname, 
+                                                                        UploadId=mpu['UploadId'],
+                                                                        MultipartUpload=part_info)
 
                         # writer_keylist = []
                         # for i in range(numPartitions):
