@@ -3,6 +3,7 @@ import struct
 import time
 import numpy as np
 from itertools import groupby
+from collections import defaultdict 
 import boto3
 import pywren
 import cPickle as pickle
@@ -70,23 +71,10 @@ def partition_data():
                         clients.append(boto3.client('s3', 'us-west-2'))
                 write_pool_handler_container = []
                 #manager = Manager()
+
+                records_per_input = 1000000
                 for roundIdx in range(rounds):
                         inputs = []
-
-                        def read_work(read_key):
-                                inputId = read_key['inputId']
-                                keyname = "input/part-" + str(inputId)
-                                m = md5.new()
-                                m.update(keyname)
-                                randomized_keyname = "input/" + m.hexdigest()[:8] + "-part-" + str(inputId)
-                                logger.info("fetching " + randomized_keyname)
-                                obj = client.get_object(Bucket=bucketName, Key=randomized_keyname)
-                                logger.info("fetching " + randomized_keyname + " done")
-                                fileobj = obj['Body']
-                                data = np.fromstring(fileobj.read(), dtype = recordType)
-                                logger.info("conversion " + randomized_keyname + " done")
-                                logger.info("size " + randomized_keyname + "  " + str(len(data)))
-                                inputs.append(data)
 
                         startId = taskId*inputsPerTask + roundIdx*taskPerRound
                         endId = min(taskId*inputsPerTask + min((roundIdx+1)*taskPerRound, inputsPerTask), totalInputs)
@@ -101,12 +89,36 @@ def partition_data():
                             read_keylist.append({'inputId': inputIds[i],
                                                    'i': i})
 
+                        records = np.empty(len(inputIds) * records_per_input, dtype = recordType)
+
+                        def read_work(read_key):
+                                inputId = read_key['inputId']
+                                keyname = "input/part-" + str(inputId)
+                                m = md5.new()
+                                m.update(keyname)
+                                randomized_keyname = "input/" + m.hexdigest()[:8] + "-part-" + str(inputId)
+                                logger.info("fetching " + randomized_keyname)
+                                obj = client.get_object(Bucket=bucketName, Key=randomized_keyname)
+                                logger.info("fetching " + randomized_keyname + " done")
+                                fileobj = obj['Body']
+                                fileobjread = fileobj.read()
+                                data = np.frombuffer(fileobjread, dtype = recordType)
+                                logger.info("conversion " + randomized_keyname + " done")
+                                logger.info("size " + randomized_keyname + "  " + str(len(data)))
+                                i = read_key['i']
+                                records[i*records_per_input : (i+1)*records_per_input] = data
+                                #inputs.append(data)
+
                         # before processing, make sure all data is read
-                        read_pool.map(read_work, read_keylist)
+                        #read_pool.map(read_work, read_keylist)
+                        for read_key in read_keylist:
+                            read_work(read_key)
                         logger.info("read call done ")
                         logger.info("size of inputs" + str(len(inputs)))
 
-                        records = np.concatenate(inputs)
+                        #records = np.concatenate(inputs)
+                        print(records.size)
+                        #inputs = []
                         gc.collect()
 
                         t1 = time.time()
@@ -117,6 +129,7 @@ def partition_data():
                                 ps = [0] * len(records)
                         else:
                                 ps = np.searchsorted(boundaries, records['key'])
+                        
                         t2 = time.time()
                         logger.info('calculating partitions time: ' + str(t2-t1))
                         #work_time = t2-t1
@@ -133,11 +146,18 @@ def partition_data():
 
                         t2 = time.time()
                         gc.collect()
+                        logger.info("partitioning start")
+                        '''
                         outputs = [[] for i in range(0, numPartitions)]
                         for idx,record in enumerate(records):
                                         #if idx % 100000 == 0:
                                         #        logger.info('paritioning record idx: ' + str(idx))
                                         outputs[ps[idx]].append(record)
+                        '''
+                        psi = defaultdict(list)
+                        for i,e in enumerate(ps):
+                            psi[e].append(i)
+                        del ps 
                         t3 = time.time()
                         logger.info('paritioning time: ' + str(t3-t2))
                         work_time = t3-t1
@@ -160,9 +180,11 @@ def partition_data():
                                         m = md5.new()
                                         m.update(keyname)
                                         randomized_keyname = "shuffle/" + m.hexdigest()[:8] + "-part-" + str(mapId) + "-" + str(i)
-                                        body = np.asarray(outputs[ps[i]]).tobytes()
+                                        body = np.asarray(records[psi[i]]).tobytes()
+                                        del psi[i]
+                                        #body = np.asarray(outputs[ps[i]]).tobytes()
                                         #local_client.put_object(Bucket=bucketName, Key=randomized_keyname, Body=body)
-                                        ridx = int(m.hexdigest()[:8], 16) % nrs 
+                                        #ridx = int(m.hexdigest()[:8], 16) % nrs 
                                         #rs[ridx].set(randomized_keyname, body)
 
                         # writer_keylist = []
@@ -177,8 +199,10 @@ def partition_data():
                                                 'i': i,
                                                 'key-per-client':key_per_client})
 
-                        write_pool_handler = write_pool.map_async(write_work_client, writer_keylist)
-                        write_pool_handler_container.append(write_pool_handler)
+                        #write_pool_handler = write_pool.map_async(write_work_client, writer_keylist)
+                        #write_pool_handler_container.append(write_pool_handler)
+                        for write_key in writer_keylist:
+                            write_work_client(write_key)
 
                 if len(write_pool_handler_container) > 0:
                         write_pool_handler = write_pool_handler_container.pop()
