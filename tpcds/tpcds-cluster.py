@@ -54,18 +54,25 @@ parall_3 = 2000
 #mode = 's3-only'
 pywren_rate = 1000
 
-pm = [str(parall_1), str(parall_2), str(parall_3), str(pywren_rate)]
 
 n_buckets = 1
-filename = "cluster-" +  mode + '-tpcds-q16-scale' + str(scale) + "-" + "-".join(pm) + "-b" + str(n_buckets) + ".pickle"
 
 redis_hostname = "tpcds-large2.oapxhs.0001.usw2.cache.amazonaws.com"
 redisnode = "tpcds-large.oapxhs.clustercfg.usw2.cache.amazonaws.com"
+hostnames = ["tpcds1.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds2.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds3.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds4.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds5.oapxhs.0001.usw2.cache.amazonaws.com"]
+n_nodes = len(hostnames)
 startup_nodes = [{"host": redisnode, "port": 6379}]
-sinstance_type = "cache.r3.8xlarge"
+instance_type = "cache.r3.8xlarge"
 
 wrenexec = pywren.default_executor(shard_runtime=True)
 stage_info_load = pickle.load(open("stageinfo.pickle", "r"))
+
+pm = [str(parall_1), str(parall_2), str(parall_3), str(pywren_rate), str(n_nodes)]
+filename = "cluster-" +  mode + '-tpcds-q16-scale' + str(scale) + "-" + "-".join(pm) + "-b" + str(n_buckets) + ".pickle"
 
 
 print("Scale is " + str(scale))
@@ -159,6 +166,9 @@ def read_s3_table(key, s3_client=None):
 
 # In[18]:
 
+
+def hash_key_to_index(key, number):
+    return int(md5(key).hexdigest()[8:], 16) % number
 
 def my_hash_function(row, indices):
     # print indices
@@ -306,9 +316,13 @@ def write_redis_partitions(df, column_names, bintype, partitions, storage):
     # print("t1 - t0 is " + str(t1-t0))
     #print((bins))
     #print(df)
+    redis_clients = []
+    for hostname in hostnames:
+        redis_client = redis.StrictRedis(host=hostname, port=6379, db=0)
+        redis_clients.append(redis_client)
     #redis_client = redis.StrictRedis(host=redis_hostname, port=6379, db=0)
-    redis_client = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
-         
+    
+    #redis_client = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
             
     outputs_info = []
     def write_task(bin_index):
@@ -319,13 +333,15 @@ def write_redis_partitions(df, column_names, bintype, partitions, storage):
             #print(split.dtypes)
             # write output to storage
             output_loc = storage + str(bin_index) + ".csv"
+            redis_index = hash_key_to_index(output_loc, len(hostnames))
+            redis_client = redis_clients[redis_index]
             outputs_info.append(write_redis_intermediate(output_loc, split, redis_client))
-    #write_pool = ThreadPool(1)
-    #write_pool.map(write_task, range(len(bins)))
-    #write_pool.close()
-    #write_pool.join()
-    for i in range(len(bins)):
-        write_task(i)
+    write_pool = ThreadPool(10)
+    write_pool.map(write_task, range(len(bins)))
+    write_pool.close()
+    write_pool.join()
+    #for i in range(len(bins)):
+    #    write_task(i)
     t2 = time.time()
     
     results = {}
@@ -447,13 +463,19 @@ def read_redis_multiple_splits(names, dtypes, prefix, number_splits, suffix):
         
     ds = []
     #redis_client = redis.StrictRedis(host=redis_hostname, port=6379, db=0)
-    redis_client = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
+    #redis_client = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
+    redis_clients = []
+    for hostname in hostnames:
+        redis_client = redis.StrictRedis(host=hostname, port=6379, db=0)
+        redis_clients.append(redis_client)
 
     def read_work(split_index):
         key = {}
         key['names'] = names
         key['dtypes'] = dtypes_dict
         key['loc'] = prefix + str(split_index) + suffix
+        redis_index = hash_key_to_index(key['loc'], len(hostnames))
+        redis_client = redis_clients[redis_index]
         d = read_redis_intermediate(key, redis_client)
         ds.append(d)
     
