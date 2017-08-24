@@ -394,7 +394,8 @@ def generic_handler(event, context_dict):
                 response_status['exception'] = str(e)
                 response_status['exception_args'] = e.args
     finally:
-        logger.error(response_status)
+        print("finish successfully.")
+        #logger.error(response_status)
         status_key_full = status_key[1] + ".json." + str(event['attempt_id'])
         s3.meta.client.put_object(Bucket=status_key[0], Key=status_key_full,
                                   Body=json.dumps(response_status))
@@ -403,8 +404,21 @@ def generic_handler(event, context_dict):
 if __name__ == "__main__":
     s3 = boto3.resource('s3')
     #s3.meta.client.download_file('ericmjonas-public', 'condaruntime.tar.gz', '/tmp/condaruntime.tar.gz')
+    '''    
     res = s3.meta.client.get_object(Bucket='ericmjonas-public', Key='condaruntime.tar.gz')
 
     condatar = tarfile.open(mode= "r:gz", 
                             fileobj = WrappedStreamingBody(res['Body'], res['ContentLength']))
     condatar.extractall('/tmp/test1/')
+    '''
+
+    logger.setLevel(logging.ERROR)
+    context_dict = {
+        'aws_request_id' : 111, 
+        'log_group_name' : "aaa", 
+        'log_stream_name' : "bbb", 
+    }
+    event = json.load(open(sys.argv[1], "r"))
+    generic_handler(event, context_dict)
+
+

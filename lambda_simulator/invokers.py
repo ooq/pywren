@@ -32,7 +32,6 @@ class LambdaInvoker(object):
         res = self.lambclient.invoke(FunctionName=self.lambda_function_name,
                                      Payload = json.dumps(payload), 
                                      InvocationType='Event')
-        json.dump(payload, open("event.json","w"))
         # FIXME check response
         return res['ResponseMetadata']
         #return {}
