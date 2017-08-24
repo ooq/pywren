@@ -336,13 +336,16 @@ def write_redis_partitions(df, column_names, bintype, partitions, storage):
             redis_index = hash_key_to_index(output_loc, len(hostnames))
             redis_client = redis_clients[redis_index]
             outputs_info.append(write_redis_intermediate(output_loc, split, redis_client))
-    write_pool = ThreadPool(10)
+    write_pool = ThreadPool(64)
     write_pool.map(write_task, range(len(bins)))
     write_pool.close()
     write_pool.join()
     #for i in range(len(bins)):
     #    write_task(i)
     t2 = time.time()
+
+    for redis_client in redis_clients:
+        redis_client.connection_pool.disconnect()
     
     results = {}
     results['outputs_info'] = outputs_info
@@ -479,10 +482,13 @@ def read_redis_multiple_splits(names, dtypes, prefix, number_splits, suffix):
         d = read_redis_intermediate(key, redis_client)
         ds.append(d)
     
-    read_pool = ThreadPool(10)
+    read_pool = ThreadPool(64)
     read_pool.map(read_work, range(number_splits))
     read_pool.close()
     read_pool.join()
+
+    for redis_client in redis_clients:
+        redis_client.connection_pool.disconnect()
 
     return pd.concat(ds)
 
