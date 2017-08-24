@@ -62,7 +62,7 @@ if __name__ == "__main__":
     #    passed_tasks.append(int(iii))
     #passed_tasks = range(0,1000000,5)
     #passed_tasks = range(0,10000,5)
-    passed_tasks = range(0,10000,5)
+    passed_tasks = range(0,1000000,5)
     #passed_tasks = range(1)
     
     fut = wrenexec.map_sync_with_rate_and_retries(run_command, passed_tasks, rate=1000)

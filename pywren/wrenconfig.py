@@ -19,7 +19,7 @@ AWS_S3_BUCKET = "jonas-testbucket2"
 AWS_S3_PREFIX = "pywren.jobs"
 FUNCTION_NAME = "pywren1"
 
-MAX_AGG_DATA_SIZE = 4e6
+MAX_AGG_DATA_SIZE = 4e9
 
 MAX_S3_RUNTIME_SHARDS=50
 default_runtime = {'2.7' : "pywren.runtime/pywren_runtime-2.7-default.tar.gz", 
