@@ -16,6 +16,7 @@ from s3fs import S3FileSystem
 import pywren
 
 import redis
+from rediscluster import StrictRedisCluster
 
 import time
 from hashlib import md5
@@ -43,21 +44,25 @@ def get_type(typename):
     raise Exception("Not supported type: " + typename)
 
     
+mode = 's3-redis'
+
 scale = 1000
 parall_1 = 2000
 parall_2 = 2000
 parall_3 = 2000
 #mode = 'local'
 #mode = 's3-only'
-mode = 's3-redis'
 pywren_rate = 1000
 
 pm = [str(parall_1), str(parall_2), str(parall_3), str(pywren_rate)]
 
 n_buckets = 1
+filename = "cluster-" +  mode + '-tpcds-q16-scale' + str(scale) + "-" + "-".join(pm) + "-b" + str(n_buckets) + ".pickle"
 
-redis_hostname = "tpcds-large.oapxhs.0001.usw2.cache.amazonaws.com"
-instance_type = "cache.r3.8xlarge"
+redis_hostname = "tpcds-large2.oapxhs.0001.usw2.cache.amazonaws.com"
+redisnode = "tpcds-large.oapxhs.clustercfg.usw2.cache.amazonaws.com"
+startup_nodes = [{"host": redisnode, "port": 6379}]
+sinstance_type = "cache.r3.8xlarge"
 
 wrenexec = pywren.default_executor(shard_runtime=True)
 stage_info_load = pickle.load(open("stageinfo.pickle", "r"))
@@ -121,6 +126,7 @@ def read_local_table(key):
                               names=names,
                               usecols=range(len(names)-1), 
                               dtype=dtypes, 
+                              na_values = "-",
                               parse_dates=parse_dates)
     #print(part_data.info())
     return part_data
@@ -144,6 +150,7 @@ def read_s3_table(key, s3_client=None):
                               names=names,
                               usecols=range(len(names)-1), 
                               dtype=dtypes, 
+                              na_values = "-",
                               parse_dates=parse_dates)
     #print(part_data.info())
     return part_data
@@ -218,8 +225,8 @@ def write_redis_intermediate(output_loc, table, redis_client=None):
     csv_buffer = BytesIO()
     table.to_csv(csv_buffer, sep="|", header=False, index=False)
     if redis_client == None:
-        redis_client = redis.StrictRedis(host=redis_hostname, port=6379, db=0)
-            
+        #redis_client = redis.StrictRedis(host=redis_hostname, port=6379, db=0)
+        redis_client = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
     redis_client.set(output_loc, csv_buffer.getvalue())
 
     output_info = {}
@@ -299,7 +306,10 @@ def write_redis_partitions(df, column_names, bintype, partitions, storage):
     # print("t1 - t0 is " + str(t1-t0))
     #print((bins))
     #print(df)
-    redis_client = redis.StrictRedis(host=redis_hostname, port=6379, db=0)
+    #redis_client = redis.StrictRedis(host=redis_hostname, port=6379, db=0)
+    redis_client = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
+         
+            
     outputs_info = []
     def write_task(bin_index):
         split = df[df['bin'] == bin_index]
@@ -310,10 +320,12 @@ def write_redis_partitions(df, column_names, bintype, partitions, storage):
             # write output to storage
             output_loc = storage + str(bin_index) + ".csv"
             outputs_info.append(write_redis_intermediate(output_loc, split, redis_client))
-    write_pool = ThreadPool(10)
-    write_pool.map(write_task, range(len(bins)))
-    write_pool.close()
-    write_pool.join()
+    #write_pool = ThreadPool(1)
+    #write_pool.map(write_task, range(len(bins)))
+    #write_pool.close()
+    #write_pool.join()
+    for i in range(len(bins)):
+        write_task(i)
     t2 = time.time()
     
     results = {}
@@ -374,8 +386,9 @@ def read_redis_intermediate(key, redis_client=None):
             parse_dates.append(d)
             dtypes[d] = np.dtype("string")
     if redis_client == None:
-        redis_client = redis.StrictRedis(host=redis_hostname, port=6379, db=0)
-        
+        #redis_client = redis.StrictRedis(host=redis_hostname, port=6379, db=0)
+        redis_client = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
+  
     part_data = pd.read_table(BytesIO(redis_client.get(key['loc'])), 
                               delimiter="|", 
                               header=None, 
@@ -433,7 +446,8 @@ def read_redis_multiple_splits(names, dtypes, prefix, number_splits, suffix):
         dtypes_dict[names[i]] = dtypes[i]
         
     ds = []
-    redis_client = redis.StrictRedis(host=redis_hostname, port=6379, db=0)
+    #redis_client = redis.StrictRedis(host=redis_hostname, port=6379, db=0)
+    redis_client = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
 
     def read_work(split_index):
         key = {}
@@ -504,13 +518,39 @@ def get_locations(table):
 # join
 # mkdir_if_not_exist(output_address)
 def stage1(key):
-    res = 1
-    try:
-        cs = read_table(key)
-    except:
-        res = 0
+    [tr, tc, tw] = [0] * 3
+    t0 = time.time()
+    output_address = key['output_address']
+    cs = read_table(key)
+    t1 = time.time()
+    tr += t1 - t0
+    t0 = time.time()
+    wanted_columns = ['cs_order_number',
+                      'cs_ext_ship_cost',
+                      'cs_net_profit',
+                      'cs_ship_date_sk',
+                      'cs_ship_addr_sk',
+                      'cs_call_center_sk',
+                      'cs_warehouse_sk']
+    cs_s = cs[wanted_columns]
+
+    t1 = time.time()
+    tc += t1 - t0
+
+    storage = output_address + "/part_" + str(key['task_id']) + "_"
+    res = write_partitions(cs_s, ['cs_order_number'], 'uniform', parall_1, storage)
+    outputs_info = res['outputs_info']
+    [tcc, tww] = res['breakdown']
+    tc += tcc
+    tw += tww
+
+    results = {}
+    info = {}
+    info['outputs_info'] = outputs_info
+    results['info'] = {}
+    results['breakdown'] = [tr, tc, tw, (tc+tc+tw)]
     
-    return res
+    return results
 
 
 # In[20]:
@@ -765,8 +805,7 @@ names = get_name_for_table(table)
 dtypes = get_dtypes_for_table(table)
 tasks_stage1 = []
 task_id = 0
-all_locs = get_locations(table)
-for loc in all_locs:
+for loc in get_locations(table):
     key = {}
     # print(task_id)
     key['task_id'] = task_id
@@ -781,17 +820,14 @@ for loc in all_locs:
 #for task in tasks_stage1:
 #    stage1_info.append(stage1(task))
 
+#results_stage = execute_local_stage(stage1, [tasks_stage1[0]])
 results_stage = execute_stage(stage1, tasks_stage1)
-#results_stage = execute_stage(stage1, [tasks_stage1[0]])
+stage1_info = [a['info'] for a in results_stage['results']]
+results.append(results_stage)
 
-#filename = mode + '-tpcds-q16-scale' + str(scale) + "-" + "-".join(pm) + "-b" + str(n_buckets) + ".pickle"
-filename = "read_test_table.pickle"
-pickle.dump(results_stage, open(filename, 'wb'))
-results_data = results_stage['results']
-missing_locs = [all_locs[i] for i in range(len(results_data)) if results_data[i] == 0]
-print(missing_locs)
-exit()
+pickle.dump(results, open(filename, 'wb'))
 
+exit(0)
 
 # In[27]:
 
@@ -824,7 +860,6 @@ results_stage = execute_stage(stage2, tasks_stage2)
 stage2_info = [a['info'] for a in results_stage['results']]
 results.append(results_stage)
 
-filename = mode + '-tpcds-q16-scale' + str(scale) + "-" + "-".join(pm) + "-b" + str(n_buckets) + ".pickle"
 pickle.dump(results, open(filename, 'wb'))
 
 
@@ -873,7 +908,6 @@ results_stage = execute_stage(stage3, tasks_stage3)
 stage3_info = [a['info'] for a in results_stage['results']]
 results.append(results_stage)
 
-filename = mode + '-tpcds-q16-scale' + str(scale) + "-" + "-".join(pm) + "-b" + str(n_buckets) + ".pickle"
 pickle.dump(results, open(filename, 'wb'))
 
 
@@ -908,7 +942,6 @@ stage4_info = [a['info'] for a in results_stage['results']]
 results.append(results_stage)
 
 
-filename = mode + '-tpcds-q16-scale' + str(scale) + "-" + "-".join(pm) + "-b" + str(n_buckets) + ".pickle"
 pickle.dump(results, open(filename, 'wb'))
 
 
@@ -952,7 +985,6 @@ results_stage = execute_stage(stage5, tasks_stage5)
 stage5_info = [a['info'] for a in results_stage['results']]
 results.append(results_stage)
 
-filename = mode + '-tpcds-q16-scale' + str(scale) + "-" + "-".join(pm) + "-b" + str(n_buckets) + ".pickle"
 pickle.dump(results, open(filename, 'wb'))
 
 
@@ -986,7 +1018,6 @@ results.append(results_stage)
 # In[34]:
 
 
-filename = mode + '-tpcds-q16-scale' + str(scale) + "-" + "-".join(pm) + "-b" + str(n_buckets) + ".pickle"
 pickle.dump(results, open(filename, 'wb'))
 
 

@@ -119,6 +119,27 @@ if __name__ == "__main__":
     ("web_page",1),
     ("web_sales",1808),
     ("web_site",1)]
+    tables_100 = [("call_center",1),
+    ("catalog_page",1),
+    ("catalog_sales",322),
+    ("customer",3),
+    ("customer_address",1),
+    ("customer_demographics",1),
+    ("date_dim",1),
+    ("household_demographics",1),
+    ("income_band",1),
+    ("inventory",90),
+    ("item",1),
+    ("promotion",1),
+    ("reason",1),
+    ("ship_mode",1),
+    ("store",1),
+    ("store_sales",433),
+    ("time_dim",1),
+    ("warehouse",1),
+    ("web_page",1),
+    ("web_sales",166),
+    ("web_site",1)]
     tables_10 = [("call_center",1),
     ("catalog_page",1),
     ("catalog_sales",33),
@@ -140,15 +161,14 @@ if __name__ == "__main__":
     ("web_page",1),
     ("web_sales",109),
     ("web_site",1)]
-    all_tables = {10:tables_10, 1000: tables_1000}
+    all_tables = {10:tables_10, 100: tables_100, 1000: tables_1000}
 
-    scale = 10
+    scale = 100
     passed_tasks = [] 
     for (table, total) in all_tables[scale]:
-        print table
-        print total
-        if table is not "web_sales":
-            continue
+        print table + " " + str(total)
+        #if table is not "web_sales":
+        #    continue
         for i in range(1, total+1, 5):
             key = {} 
             key['total'] = total
@@ -156,10 +176,10 @@ if __name__ == "__main__":
             key['table'] = table
             key['start_index'] = i
             passed_tasks.append(key)
-        for key in passed_tasks:
-            print(run_command(key))
+        #for key in passed_tasks:
+        #    print(run_command(key))
         #continue
-    #fut = wrenexec.map_sync_with_rate_and_retries(run_command, passed_tasks, rate=300)
+    fut = wrenexec.map_sync_with_rate_and_retries(run_command, passed_tasks, rate=300)
 
     pywren.wait(fut)
     res = [f.result() for f in fut]

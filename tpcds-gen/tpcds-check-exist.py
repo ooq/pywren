@@ -30,8 +30,13 @@ if __name__ == "__main__":
                 results += 1
             except botocore.exceptions.ClientError as e:
                 results += 0
-            
-        return table + ":" + str(results) + "/" + str(total)
+
+        result = table + ":" + str(results) + "/" + str(total)
+        if "sales" in table:
+            return_key = key.copy()
+            return_key['table'] = table.split("_")[0] + "_returns"
+            return result + "\n" + run_command(return_key)
+        return result 
     wrenexec = pywren.default_executor(shard_runtime=True)
     #fp = open("../finished_calls.txt","r")
     #finished_calls = []
@@ -72,6 +77,27 @@ if __name__ == "__main__":
     ("web_page",1),
     ("web_sales",1808),
     ("web_site",1)]
+    tables_100 = [("call_center",1),
+    ("catalog_page",1),
+    ("catalog_sales",322),
+    ("customer",3),
+    ("customer_address",1),
+    ("customer_demographics",1),
+    ("date_dim",1),
+    ("household_demographics",1),
+    ("income_band",1),
+    ("inventory",90),
+    ("item",1),
+    ("promotion",1),
+    ("reason",1),
+    ("ship_mode",1),
+    ("store",1),
+    ("store_sales",433),
+    ("time_dim",1),
+    ("warehouse",1),
+    ("web_page",1),
+    ("web_sales",166),
+    ("web_site",1)]
     tables_10 = [("call_center",1),
     ("catalog_page",1),
     ("catalog_sales",33),
@@ -91,11 +117,11 @@ if __name__ == "__main__":
     ("time_dim",1),
     ("warehouse",1),
     ("web_page",1),
-    ("web_sales",17),
+    ("web_sales",109),
     ("web_site",1)]
-    all_tables = {10:tables_10, 1000: tables_1000}
+    all_tables = {10:tables_10, 100: tables_100, 1000: tables_1000}
 
-    scale = 10
+    scale = 100
     passed_tasks = [] 
     for (table, total) in all_tables[scale]:
             key = {} 

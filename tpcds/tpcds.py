@@ -56,7 +56,7 @@ pm = [str(parall_1), str(parall_2), str(parall_3), str(pywren_rate)]
 
 n_buckets = 1
 
-redis_hostname = "tpcds-large.oapxhs.0001.usw2.cache.amazonaws.com"
+redis_hostname = "tpcds-large2.oapxhs.0001.usw2.cache.amazonaws.com"
 instance_type = "cache.r3.8xlarge"
 
 wrenexec = pywren.default_executor(shard_runtime=True)
@@ -121,6 +121,7 @@ def read_local_table(key):
                               names=names,
                               usecols=range(len(names)-1), 
                               dtype=dtypes, 
+                              na_values = "-",
                               parse_dates=parse_dates)
     #print(part_data.info())
     return part_data
@@ -144,6 +145,7 @@ def read_s3_table(key, s3_client=None):
                               names=names,
                               usecols=range(len(names)-1), 
                               dtype=dtypes, 
+                              na_values = "-",
                               parse_dates=parse_dates)
     #print(part_data.info())
     return part_data
@@ -806,6 +808,7 @@ for loc in get_locations(table):
 #for task in tasks_stage1:
 #    stage1_info.append(stage1(task))
 
+#results_stage = execute_local_stage(stage1, [tasks_stage1[0]])
 results_stage = execute_stage(stage1, tasks_stage1)
 stage1_info = [a['info'] for a in results_stage['results']]
 results.append(results_stage)
@@ -813,7 +816,7 @@ results.append(results_stage)
 filename = mode + '-tpcds-q16-scale' + str(scale) + "-" + "-".join(pm) + "-b" + str(n_buckets) + ".pickle"
 pickle.dump(results, open(filename, 'wb'))
 
-
+#exit(0)
 
 # In[27]:
 

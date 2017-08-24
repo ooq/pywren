@@ -144,6 +144,7 @@ def read_s3_table(key, s3_client=None):
                               names=names,
                               usecols=range(len(names)-1), 
                               dtype=dtypes, 
+                              na_values = "-",
                               parse_dates=parse_dates)
     #print(part_data.info())
     return part_data
@@ -505,10 +506,12 @@ def get_locations(table):
 # mkdir_if_not_exist(output_address)
 def stage1(key):
     res = 1
+    #print(key)
     try:
         cs = read_table(key)
     except:
         res = 0
+    #print(cs.info())
     
     return res
 
@@ -765,7 +768,8 @@ names = get_name_for_table(table)
 dtypes = get_dtypes_for_table(table)
 tasks_stage1 = []
 task_id = 0
-all_locs = get_locations(table)
+#all_locs = get_locations(table)
+all_locs = ['s3://qifan-tpcds-data/scale1000/catalog_sales/catalog_sales_1154_3288.csv', 's3://qifan-tpcds-data/scale1000/catalog_sales/catalog_sales_1162_3288.csv', 's3://qifan-tpcds-data/scale1000/catalog_sales/catalog_sales_1346_3614.csv', 's3://qifan-tpcds-data/scale1000/catalog_sales/catalog_sales_1364_3288.csv', 's3://qifan-tpcds-data/scale1000/catalog_sales/catalog_sales_186_3288.csv', 's3://qifan-tpcds-data/scale1000/catalog_sales/catalog_sales_1960_3288.csv', 's3://qifan-tpcds-data/scale1000/catalog_sales/catalog_sales_20_3288.csv', 's3://qifan-tpcds-data/scale1000/catalog_sales/catalog_sales_2321_3614.csv', 's3://qifan-tpcds-data/scale1000/catalog_sales/catalog_sales_2704_3614.csv', 's3://qifan-tpcds-data/scale1000/catalog_sales/catalog_sales_2745_3288.csv', 's3://qifan-tpcds-data/scale1000/catalog_sales/catalog_sales_2833_3614.csv', 's3://qifan-tpcds-data/scale1000/catalog_sales/catalog_sales_3172_3614.csv', 's3://qifan-tpcds-data/scale1000/catalog_sales/catalog_sales_3225_3614.csv', 's3://qifan-tpcds-data/scale1000/catalog_sales/catalog_sales_3598_3614.csv', 's3://qifan-tpcds-data/scale1000/catalog_sales/catalog_sales_394_3288.csv', 's3://qifan-tpcds-data/scale1000/catalog_sales/catalog_sales_624_3614.csv', 's3://qifan-tpcds-data/scale1000/catalog_sales/catalog_sales_73_3614.csv']
 for loc in all_locs:
     key = {}
     # print(task_id)
@@ -782,7 +786,7 @@ for loc in all_locs:
 #    stage1_info.append(stage1(task))
 
 results_stage = execute_stage(stage1, tasks_stage1)
-#results_stage = execute_stage(stage1, [tasks_stage1[0]])
+#results_stage = execute_local_stage(stage1, [tasks_stage1[0]])
 
 #filename = mode + '-tpcds-q16-scale' + str(scale) + "-" + "-".join(pm) + "-b" + str(n_buckets) + ".pickle"
 filename = "read_test_table.pickle"
