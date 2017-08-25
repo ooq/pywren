@@ -336,7 +336,7 @@ def write_redis_partitions(df, column_names, bintype, partitions, storage):
             redis_index = hash_key_to_index(output_loc, len(hostnames))
             redis_client = redis_clients[redis_index]
             outputs_info.append(write_redis_intermediate(output_loc, split, redis_client))
-    write_pool = ThreadPool(64)
+    write_pool = ThreadPool(10)
     write_pool.map(write_task, range(len(bins)))
     write_pool.close()
     write_pool.join()
@@ -482,7 +482,7 @@ def read_redis_multiple_splits(names, dtypes, prefix, number_splits, suffix):
         d = read_redis_intermediate(key, redis_client)
         ds.append(d)
     
-    read_pool = ThreadPool(64)
+    read_pool = ThreadPool(10)
     read_pool.map(read_work, range(number_splits))
     read_pool.close()
     read_pool.join()
@@ -849,13 +849,13 @@ for loc in get_locations(table):
 #    stage1_info.append(stage1(task))
 
 #results_stage = execute_local_stage(stage1, [tasks_stage1[0]])
+#results_stage = execute_stage(stage1, [tasks_stage1[0]])
 results_stage = execute_stage(stage1, tasks_stage1)
 stage1_info = [a['info'] for a in results_stage['results']]
 results.append(results_stage)
 
 pickle.dump(results, open(filename, 'wb'))
 
-exit(0)
 
 # In[27]:
 
