@@ -59,11 +59,14 @@ n_buckets = 1
 
 redis_hostname = "tpcds-large2.oapxhs.0001.usw2.cache.amazonaws.com"
 redisnode = "tpcds-large.oapxhs.clustercfg.usw2.cache.amazonaws.com"
+#hostnames = ["tpcds1.oapxhs.0001.usw2.cache.amazonaws.com"]
+#'''
 hostnames = ["tpcds1.oapxhs.0001.usw2.cache.amazonaws.com",
              "tpcds2.oapxhs.0001.usw2.cache.amazonaws.com",
              "tpcds3.oapxhs.0001.usw2.cache.amazonaws.com",
              "tpcds4.oapxhs.0001.usw2.cache.amazonaws.com",
              "tpcds5.oapxhs.0001.usw2.cache.amazonaws.com"]
+#'''
 n_nodes = len(hostnames)
 startup_nodes = [{"host": redisnode, "port": 6379}]
 instance_type = "cache.r3.8xlarge"
@@ -73,7 +76,7 @@ stage_info_load = pickle.load(open("stageinfo.pickle", "r"))
 
 pm = [str(parall_1), str(parall_2), str(parall_3), str(pywren_rate), str(n_nodes)]
 filename = "cluster-" +  mode + '-tpcds-q16-scale' + str(scale) + "-" + "-".join(pm) + "-b" + str(n_buckets) + ".pickle"
-
+#filename = "simple-test.pickle"
 
 print("Scale is " + str(scale))
 
@@ -233,7 +236,8 @@ def write_s3_intermediate(output_loc, table, s3_client=None):
 
 def write_redis_intermediate(output_loc, table, redis_client=None):
     csv_buffer = BytesIO()
-    table.to_csv(csv_buffer, sep="|", header=False, index=False)
+    slt_columns = table.columns.delete(table.columns.get_loc('bin'))
+    table.to_csv(csv_buffer, sep="|", header=False, index=False, columns=slt_columns)
     if redis_client == None:
         #redis_client = redis.StrictRedis(host=redis_hostname, port=6379, db=0)
         redis_client = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
@@ -317,9 +321,12 @@ def write_redis_partitions(df, column_names, bintype, partitions, storage):
     #print((bins))
     #print(df)
     redis_clients = []
+    pipes = []
     for hostname in hostnames:
-        redis_client = redis.StrictRedis(host=hostname, port=6379, db=0)
+        #redis_client = redis.StrictRedis(host=hostname, port=6379, db=0)
+        redis_client = redis.Redis(host=hostname, port=6379, db=0)
         redis_clients.append(redis_client)
+        pipes.append(redis_client.pipeline())
     #redis_client = redis.StrictRedis(host=redis_hostname, port=6379, db=0)
     
     #redis_client = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
@@ -329,14 +336,15 @@ def write_redis_partitions(df, column_names, bintype, partitions, storage):
         split = df[df['bin'] == bin_index]
         if split.size > 0 or split.size < 1:
             # print(split.size)
-            split.drop('bin', axis=1, inplace=True)
+            #split.drop('bin', axis=1, inplace=True)
             #print(split.dtypes)
             # write output to storage
             output_loc = storage + str(bin_index) + ".csv"
             redis_index = hash_key_to_index(output_loc, len(hostnames))
-            redis_client = redis_clients[redis_index]
+            #redis_client = redis_clients[redis_index]
+            redis_client = pipes[redis_index]
             outputs_info.append(write_redis_intermediate(output_loc, split, redis_client))
-    write_pool = ThreadPool(10)
+    write_pool = ThreadPool(1)
     write_pool.map(write_task, range(len(bins)))
     write_pool.close()
     write_pool.join()
@@ -344,6 +352,8 @@ def write_redis_partitions(df, column_names, bintype, partitions, storage):
     #    write_task(i)
     t2 = time.time()
 
+    for pipe in pipes:
+        pipe.execute()
     for redis_client in redis_clients:
         redis_client.connection_pool.disconnect()
     
@@ -468,9 +478,12 @@ def read_redis_multiple_splits(names, dtypes, prefix, number_splits, suffix):
     #redis_client = redis.StrictRedis(host=redis_hostname, port=6379, db=0)
     #redis_client = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
     redis_clients = []
+    #pipes = []
     for hostname in hostnames:
         redis_client = redis.StrictRedis(host=hostname, port=6379, db=0)
+        #redis_client = redis.Redis(host=hostname, port=6379, db=0)
         redis_clients.append(redis_client)
+        #pipes.append(redis_client.pipeline())
 
     def read_work(split_index):
         key = {}
@@ -479,14 +492,19 @@ def read_redis_multiple_splits(names, dtypes, prefix, number_splits, suffix):
         key['loc'] = prefix + str(split_index) + suffix
         redis_index = hash_key_to_index(key['loc'], len(hostnames))
         redis_client = redis_clients[redis_index]
+        #redis_client = pipes[redis_index]
         d = read_redis_intermediate(key, redis_client)
         ds.append(d)
     
-    read_pool = ThreadPool(10)
-    read_pool.map(read_work, range(number_splits))
-    read_pool.close()
-    read_pool.join()
+    #read_pool = ThreadPool(10)
+    #read_pool.map(read_work, range(number_splits))
+    #read_pool.close()
+    #read_pool.join()
+    for i in range(number_splits):
+        read_work(i)
 
+    #for pipe in pipes:
+    #    pipe.execute()
     for redis_client in redis_clients:
         redis_client.connection_pool.disconnect()
 
@@ -850,13 +868,15 @@ for loc in get_locations(table):
 
 #results_stage = execute_local_stage(stage1, [tasks_stage1[0]])
 #results_stage = execute_stage(stage1, [tasks_stage1[0]])
+#'''
 results_stage = execute_stage(stage1, tasks_stage1)
 stage1_info = [a['info'] for a in results_stage['results']]
 results.append(results_stage)
 
+#print(results_stage)
 pickle.dump(results, open(filename, 'wb'))
-
-
+#'''
+#exit(0)
 # In[27]:
 
 
@@ -883,14 +903,14 @@ for loc in get_locations(table):
 
     tasks_stage2.append(key)
     
-
+#'''
 results_stage = execute_stage(stage2, tasks_stage2)
 stage2_info = [a['info'] for a in results_stage['results']]
 results.append(results_stage)
 
 pickle.dump(results, open(filename, 'wb'))
-
-
+#'''
+exit(0)
 # In[29]:
 
 
@@ -902,6 +922,7 @@ pickle.dump(results, open(filename, 'wb'))
 
 tasks_stage3 = []
 task_id = 0
+date_dim_loc = get_locations("date_dim")[0]
 for i in range(parall_1):
     #print(info)
     info = stage_info_load['1']
@@ -923,7 +944,7 @@ for i in range(parall_1):
     table = {}
     table['names'] = get_name_for_table("date_dim")
     table['dtypes'] = get_dtypes_for_table("date_dim")
-    table['loc'] = get_locations("date_dim")[0]
+    table['loc'] = date_dim_loc
     key['date_dim'] = table
     
     key['output_address'] = temp_address + "intermediate/stage3"
@@ -933,11 +954,14 @@ for i in range(parall_1):
     task_id += 1
 
 results_stage = execute_stage(stage3, tasks_stage3)
+#results_stage = execute_local_stage(stage3, [tasks_stage3[0]])
 stage3_info = [a['info'] for a in results_stage['results']]
 results.append(results_stage)
 
-pickle.dump(results, open(filename, 'wb'))
+#print(results_stage)
 
+pickle.dump(results, open(filename, 'wb'))
+#exit(0)
 
 # In[ ]:
 
@@ -979,6 +1003,7 @@ pickle.dump(results, open(filename, 'wb'))
 
 tasks_stage5 = []
 task_id = 0
+call_center_loc = get_locations("call_center")[0]
 for i in range(parall_2):
     key = {}
     info = stage_info_load['3']
@@ -1001,7 +1026,7 @@ for i in range(parall_2):
     table = {}
     table['names'] = get_name_for_table("call_center")
     table['dtypes'] = get_dtypes_for_table("call_center")
-    table['loc'] = get_locations("call_center")[0]
+    table['loc'] = call_center_loc
     key['call_center'] = table
     
     key['output_address'] = temp_address + "intermediate/stage5"
