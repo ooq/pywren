@@ -22,6 +22,7 @@ import os
 from pywren.cloudpickle import serialize
 from pywren import invokers
 from tblib import pickling_support
+import numpy
 pickling_support.install()
 
 logger = logging.getLogger(__name__)
@@ -470,8 +471,8 @@ class Executor(object):
         wait(fs_notdones, return_when=ALL_COMPLETED)
         return res
 
-    def map_sync_with_rate_and_retries(self, func, iterdata, rate = 100, extra_env = None,
-                                    extra_meta = None,
+    def map_sync_with_rate_and_retries(self, func, iterdata, straggler=False, rate = 100, 
+                            WAIT_DUR_SEC=5, extra_env = None, extra_meta = None,
                            invoke_pool_threads=64, data_all_as_one=True,
                            use_cached_runtime=True, overwrite_invoke_args = None):
         assert rate > 0
@@ -483,13 +484,30 @@ class Executor(object):
 
         callset_id, s3_agg_data_key, s3_func_key, data_strs, host_job_meta, agg_data_ranges \
             = self.prepare(func, iterdata, data_all_as_one)
+        total_tasks = len(iterdata)
         ever_failed = 0
         ever_suc = 0
 
+        task_times = []
+
         while len(calls_queue) > 0 or len(fs_running) > 0:
             print("queue length: " + str(len(calls_queue)) + " running: " + str(len(fs_running)))
-            print("ever failed: " + str(ever_failed) + " ever suc: " + str(ever_suc))
+            print("ever failed: " + str(ever_failed) + " ever suc: " + str(ever_suc) + "/" + str(total_tasks))
             # invoking more calls
+
+            if num_available_workers > 0 and len(calls_queue) == 0 and straggler and (4*ever_suc > 3*total_tasks):
+                # consider add some speculation
+                # found stragglers
+                #print "finding speculation"
+                time_threshold = 1.5*numpy.median(task_times)
+                current_time = time.time()
+                for f in fs_running:
+                    time_so_far = current_time - f._invoke_metadata['host_submit_time']
+                    #print ("time so far: " + str(time_so_far) + " vs threshold " + str(time_threshold))
+                    if time_so_far > time_threshold:
+                        print("adding speculation task for " + f.call_id)
+                        calls_queue.append((int(f.call_id), f.attempts_made, f))
+
             if num_available_workers > 0 and len(calls_queue) > 0:
                 num_calls_to_invoke = min(num_available_workers, len(calls_queue))
                 # invoke according to the order
@@ -504,14 +522,30 @@ class Executor(object):
                 for fs in old_fs:
                     fs.attempts_made += 1
                 res += new_fs
-                fs_running += new_fs + old_fs
+                running_ids = [fs.call_id for fs in fs_running]
+                for f in old_fs:
+                    if f.call_id not in running_ids: # not append speculation tasks
+                        fs_running.append(f)
+                    else:
+                        f._invoke_metadata['host_submit_time'] = time.time()
+                fs_running += new_fs
                 calls_queue = calls_queue[num_calls_to_invoke:]
                 num_available_workers -= num_calls_to_invoke
             # wait for available slots
             else:
                 fs_success, fs_running, fs_failed = my_wait(fs_running,
-                                                              return_when=ANY_COMPLETED)
+                                    return_when=ANY_COMPLETED_OR_RUNNING, WAIT_DUR_SEC=WAIT_DUR_SEC)
+                if(len(fs_success) + len(fs_failed) == 0):
+                    time.sleep(WAIT_DUR_SEC)
                 print "after wait len of suc {} r {} f {} ".format(len(fs_success), len(fs_running), len(fs_failed))
+                
+                if (len(fs_success) > 0):
+                    suc_task_times = [(f._invoke_metadata['status_done_timestamp']
+                                        - f._invoke_metadata['host_submit_time'])
+                                        for f in fs_success]
+                    task_times.extend(suc_task_times)
+                    #print numpy.median(task_times)
+
                 ever_failed += len(fs_failed)
                 if ever_failed > 10000:
                     exit()
@@ -801,6 +835,7 @@ class ResponseFuture(object):
 ALL_COMPLETED = 1
 ANY_COMPLETED = 2
 ALWAYS = 3
+ANY_COMPLETED_OR_RUNNING = 4
 
 def wait(fs, return_when=ALL_COMPLETED, THREADPOOL_SIZE=64, 
          WAIT_DUR_SEC=5):
@@ -842,8 +877,7 @@ def wait(fs, return_when=ALL_COMPLETED, THREADPOOL_SIZE=64,
             if len(fs_dones) != 0:
                 return fs_dones, fs_notdones
             else:
-                time.sleep(WAIT_DUR_SEC)
-
+                time.sleep(WAIT_DUR_SEC)        
     elif return_when == ALWAYS:
         return _wait(fs, THREADPOOL_SIZE)
     else:
@@ -892,7 +926,9 @@ def my_wait(fs, return_when=ALL_COMPLETED, THREADPOOL_SIZE=64,
             else:
                 print("sleep in any completed")
                 time.sleep(WAIT_DUR_SEC)
-
+    elif return_when == ANY_COMPLETED_OR_RUNNING:
+            fs_success, fs_running, fs_failed = _wait_status(fs, THREADPOOL_SIZE)
+            return fs_success, fs_running, fs_failed
     elif return_when == ALWAYS:
         return _wait(fs, THREADPOOL_SIZE)
     else:
