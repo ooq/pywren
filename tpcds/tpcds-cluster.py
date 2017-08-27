@@ -52,7 +52,7 @@ parall_2 = 2000
 parall_3 = 2000
 #mode = 'local'
 #mode = 's3-only'
-pywren_rate = 1000
+pywren_rate = 1050
 
 
 n_buckets = 1
@@ -65,7 +65,22 @@ hostnames = ["tpcds1.oapxhs.0001.usw2.cache.amazonaws.com",
              "tpcds2.oapxhs.0001.usw2.cache.amazonaws.com",
              "tpcds3.oapxhs.0001.usw2.cache.amazonaws.com",
              "tpcds4.oapxhs.0001.usw2.cache.amazonaws.com",
-             "tpcds5.oapxhs.0001.usw2.cache.amazonaws.com"]
+             "tpcds5.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds6.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds7.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds8.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds9.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds10.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds11.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds12.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds13.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds14.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds15.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds16.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds17.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds18.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds19.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds20.oapxhs.0001.usw2.cache.amazonaws.com"]
 #'''
 n_nodes = len(hostnames)
 startup_nodes = [{"host": redisnode, "port": 6379}]
@@ -153,8 +168,16 @@ def read_s3_table(key, s3_client=None):
             dtypes[d] = np.dtype("string")
     if s3_client == None:
         s3_client = boto3.client("s3")
-    obj = s3_client.get_object(Bucket='qifan-tpcds-data', Key=key['loc'][22:])
-    part_data = pd.read_table(BytesIO(obj['Body'].read()),
+    data = []
+    if isinstance(key['loc'], str):
+        loc = key['loc']
+        obj = s3_client.get_object(Bucket='qifan-tpcds-data', Key=loc[22:])['Body'].read()
+        data.append(obj)
+    else:
+        for loc in key['loc']:
+            obj = s3_client.get_object(Bucket='qifan-tpcds-data', Key=loc[22:])['Body'].read()
+            data.append(obj)
+    part_data = pd.read_table(BytesIO("".join(data)),
                               delimiter="|", 
                               header=None, 
                               names=names,
@@ -427,6 +450,24 @@ def read_redis_intermediate(key, redis_client=None):
     #print(part_data.info())
     return part_data
 
+def convert_buffer_to_table(names, dtypes, data):
+    #bucket_index = int(md5(key['loc']).hexdigest()[8:], 16) % n_buckets
+    
+    parse_dates = []
+    for d in dtypes:
+        if dtypes[d] == datetime.datetime or dtypes[d] == np.datetime64:
+            parse_dates.append(d)
+            dtypes[d] = np.dtype("string")
+  
+    part_data = pd.read_table(BytesIO(data),
+                              delimiter="|", 
+                              header=None, 
+                              names=names,
+                              dtype=dtypes, 
+                              parse_dates=parse_dates)
+    #print(part_data.info())
+    return part_data
+
 
 def mkdir_if_not_exist(path):
     if mode == 'local':
@@ -478,38 +519,44 @@ def read_redis_multiple_splits(names, dtypes, prefix, number_splits, suffix):
     #redis_client = redis.StrictRedis(host=redis_hostname, port=6379, db=0)
     #redis_client = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
     redis_clients = []
-    #pipes = []
+    pipes = []
     for hostname in hostnames:
-        redis_client = redis.StrictRedis(host=hostname, port=6379, db=0)
-        #redis_client = redis.Redis(host=hostname, port=6379, db=0)
+        #redis_client = redis.StrictRedis(host=hostname, port=6379, db=0)
+        redis_client = redis.Redis(host=hostname, port=6379, db=0)
         redis_clients.append(redis_client)
-        #pipes.append(redis_client.pipeline())
+        pipes.append(redis_client.pipeline())
 
     def read_work(split_index):
         key = {}
-        key['names'] = names
-        key['dtypes'] = dtypes_dict
+        #key['names'] = names
+        #key['dtypes'] = dtypes_dict
         key['loc'] = prefix + str(split_index) + suffix
         redis_index = hash_key_to_index(key['loc'], len(hostnames))
-        redis_client = redis_clients[redis_index]
+        #redis_client = redis_clients[redis_index]
+        pipes[redis_index].get(key['loc'])
         #redis_client = pipes[redis_index]
-        d = read_redis_intermediate(key, redis_client)
-        ds.append(d)
-    
-    #read_pool = ThreadPool(10)
+        #d = read_redis_intermediate(key, redis_client)
+        #ds.append(d)
+   
+    #read_pool = ThreadPool(64)
     #read_pool.map(read_work, range(number_splits))
     #read_pool.close()
     #read_pool.join()
     for i in range(number_splits):
         read_work(i)
-
-    #for pipe in pipes:
-    #    pipe.execute()
+    ps = time.time()
+    read_data = []
+    for pipe in pipes:
+        current_data = pipe.execute()
+        #print(len(current_data))
+        read_data.extend(current_data)
+    pe = time.time()
+    #print("pipe time : " + str(pe-ps))
     for redis_client in redis_clients:
         redis_client.connection_pool.disconnect()
 
-    return pd.concat(ds)
-
+    #return pd.concat(ds)
+    return convert_buffer_to_table(names, dtypes_dict, "".join(read_data))
 
 def read_table(key):
     if mode == "local":
@@ -634,7 +681,7 @@ def stage2(key):
 
 
 # mkdir_if_not_exist(output_address)
-
+#@profile
 def stage3(key):
     [tr, tc, tw] = [0] * 3
     t0 = time.time()
@@ -646,25 +693,43 @@ def stage3(key):
     cr = read_multiple_splits(key['names2'], key['dtypes2'], key['prefix2'], key['number_splits2'], key['suffix2'])
     
     d = read_table(table)
-
+    #return 1
     t1 = time.time()
     tr += t1 - t0
     t0 = time.time()
 
     cs_succient = cs[['cs_order_number', 'cs_warehouse_sk']]
+    '''
     cs_sj = pd.merge(cs, cs_succient, on=['cs_order_number'])
+    del cs
+    del cs_succient
     cs_sj_f1 = cs_sj[cs_sj.cs_warehouse_sk_x != cs_sj.cs_warehouse_sk_y]
+    del cs_sj
     cs_sj_f1.drop_duplicates(subset=cs_sj_f1.columns[:-1], inplace=True)
-    cs_sj_f2 = cs_sj_f1[cs_sj_f1.cs_order_number.isin(cr.cr_order_number)]
-    cs_sj_f2.rename(columns = {'cs_warehouse_sk_y':'cs_warehouse_sk'}, inplace = True)
+    '''
+    # the above impl eats too much memory
+    # trying an alternative
+    # 
+    wh_uc = cs_succient.groupby(['cs_order_number']).agg({'cs_warehouse_sk':'nunique'})
+    target_order_numbers = wh_uc.loc[wh_uc['cs_warehouse_sk'] > 1].index.values
+    cs_sj_f1 = cs.loc[cs['cs_order_number'].isin(target_order_numbers)]
+
+    cs_sj_f2 = cs_sj_f1.loc[cs_sj_f1['cs_order_number'].isin(cr.cr_order_number)]
+    del cs_sj_f1
+    #cs_sj_f2.rename(columns = {'cs_warehouse_sk_y':'cs_warehouse_sk'}, inplace = True)
     
+     
     
     # join date_dim
     dd = d[['d_date', 'd_date_sk']]
     dd_select = dd[(pd.to_datetime(dd['d_date']) > pd.to_datetime('2002-02-01')) & (pd.to_datetime(dd['d_date']) < pd.to_datetime('2002-04-01'))]
     dd_filtered = dd_select[['d_date_sk']]
     
-    merged = cs_sj_f2.merge(dd, left_on='cs_ship_date_sk', right_on='d_date_sk')
+    merged = cs_sj_f2.merge(dd_filtered, left_on='cs_ship_date_sk', right_on='d_date_sk')
+    del dd
+    del cs_sj_f2
+    del dd_select
+    del dd_filtered
     merged.drop('d_date_sk', axis=1, inplace=True)
     
     # now partition with cs_ship_addr_sk
@@ -674,6 +739,7 @@ def stage3(key):
     tc += t1 - t0
     t0 = time.time()
 
+    #print(merged.dtypes)
     res = write_partitions(merged, ['cs_ship_addr_sk'], 'uniform', parall_2, storage)
     outputs_info = res['outputs_info']
     [tcc, tww] = res['breakdown']
@@ -813,9 +879,10 @@ def stage6(key):
 def execute_s3_stage(stage_function, tasks):
     t0 = time.time()
     #futures = wrenexec.map(stage_function, tasks)
-    futures = wrenexec.map_sync_with_rate_and_retries(stage_function, tasks, rate=pywren_rate)
+    #pywren.wait(futures, 1, 64, 1)
     
-    pywren.wait(futures, 1, 64, 1)
+    futures = wrenexec.map_sync_with_rate_and_retries(stage_function, tasks, straggler=True, WAIT_DUR_SEC=5, rate=pywren_rate)
+    
     results = [f.result() for f in futures]
     run_statuses = [f.run_status for f in futures]
     invoke_statuses = [f.invoke_status for f in futures]
@@ -851,7 +918,9 @@ names = get_name_for_table(table)
 dtypes = get_dtypes_for_table(table)
 tasks_stage1 = []
 task_id = 0
-for loc in get_locations(table):
+all_locs = get_locations(table)
+chunks = [all_locs[x:min(x+2,len(all_locs))] for x in xrange(0, len(all_locs), 2)]
+for loc in chunks:
     key = {}
     # print(task_id)
     key['task_id'] = task_id
@@ -891,7 +960,9 @@ names = get_name_for_table(table)
 dtypes = get_dtypes_for_table(table)
 tasks_stage2 = []
 task_id = 0
-for loc in get_locations(table):
+all_locs = get_locations(table)
+chunks = [all_locs[x:min(x+10,len(all_locs))] for x in xrange(0, len(all_locs), 10)]
+for loc in chunks:
     key = {}
     # print(task_id)
     key['task_id'] = task_id
@@ -903,14 +974,14 @@ for loc in get_locations(table):
 
     tasks_stage2.append(key)
     
-#'''
+
 results_stage = execute_stage(stage2, tasks_stage2)
 stage2_info = [a['info'] for a in results_stage['results']]
 results.append(results_stage)
 
 pickle.dump(results, open(filename, 'wb'))
-#'''
-exit(0)
+
+#exit(0)
 # In[29]:
 
 
@@ -953,12 +1024,13 @@ for i in range(parall_1):
     tasks_stage3.append(key)
     task_id += 1
 
+
 results_stage = execute_stage(stage3, tasks_stage3)
 #results_stage = execute_local_stage(stage3, [tasks_stage3[0]])
+#print(results_stage)
 stage3_info = [a['info'] for a in results_stage['results']]
 results.append(results_stage)
 
-#print(results_stage)
 
 pickle.dump(results, open(filename, 'wb'))
 #exit(0)
@@ -988,14 +1060,14 @@ for loc in get_locations(table):
     key['output_address'] = temp_address + "intermediate/stage4"
         
     tasks_stage4.append(key)
-    
+#'''    
 results_stage = execute_stage(stage4, tasks_stage4)
 stage4_info = [a['info'] for a in results_stage['results']]
 results.append(results_stage)
 
 
 pickle.dump(results, open(filename, 'wb'))
-
+#'''
 
 # In[32]:
 
@@ -1004,6 +1076,7 @@ pickle.dump(results, open(filename, 'wb'))
 tasks_stage5 = []
 task_id = 0
 call_center_loc = get_locations("call_center")[0]
+#print(info["outputs_info"][0])
 for i in range(parall_2):
     key = {}
     info = stage_info_load['3']
@@ -1035,11 +1108,13 @@ for i in range(parall_2):
     task_id += 1
     
 results_stage = execute_stage(stage5, tasks_stage5)
+#results_stage = execute_stage(stage5, tasks_stage5)
+#results_stage = execute_local_stage(stage5, [tasks_stage5[0]])
 stage5_info = [a['info'] for a in results_stage['results']]
 results.append(results_stage)
 
 pickle.dump(results, open(filename, 'wb'))
-
+#exit(0)
 
 # In[33]:
 
