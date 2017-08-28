@@ -65,14 +65,14 @@ import random
 
 #mode = 'local'
 
-scale = 10
-parall_1 = 40
-parall_2 = 40
-parall_3 = 40
+scale = 1000
+parall_1 = 1000
+parall_2 = 1000
+parall_3 = 1000
 #mode = 'local'
-mode = 's3-only'
-#mode = 's3-redis'
-pywren_rate = 100
+#mode = 's3-only'
+mode = 's3-redis'
+pywren_rate = 2000
 
 
 n_buckets = 1
@@ -83,8 +83,8 @@ n_buckets = 1
 
 redis_hostname = "tpcds-large2.oapxhs.0001.usw2.cache.amazonaws.com"
 redisnode = "tpcds-large.oapxhs.clustercfg.usw2.cache.amazonaws.com"
-#hostnames = ["tpcds1.oapxhs.0001.usw2.cache.amazonaws.com"]
-#'''
+hostnames = ["tpcds1.oapxhs.0001.usw2.cache.amazonaws.com"]
+'''
 hostnames = ["tpcds1.oapxhs.0001.usw2.cache.amazonaws.com",
              "tpcds2.oapxhs.0001.usw2.cache.amazonaws.com",
              "tpcds3.oapxhs.0001.usw2.cache.amazonaws.com",
@@ -105,7 +105,7 @@ hostnames = ["tpcds1.oapxhs.0001.usw2.cache.amazonaws.com",
              "tpcds18.oapxhs.0001.usw2.cache.amazonaws.com",
              "tpcds19.oapxhs.0001.usw2.cache.amazonaws.com",
              "tpcds20.oapxhs.0001.usw2.cache.amazonaws.com"]
-#'''
+'''
 n_nodes = len(hostnames)
 startup_nodes = [{"host": redisnode, "port": 6379}]
 instance_type = "cache.r3.8xlarge"
@@ -261,12 +261,12 @@ def add_bin(df, indices, bintype, partitions):
     
     #print("here is " + str(time.time() - tstart))
     #print(hvalues)
-    samples = hvalues.sample(n=min(hvalues.size, max(hvalues.size/8, 65536)))
     #print("here is " + str(time.time() - tstart))
     if bintype == 'uniform':
         #_, bins = pd.qcut(samples, partitions, retbins=True, labels=False)
         bins = np.linspace(0, 65536, num=(partitions+1), endpoint=True)
     elif bintype == 'sample':
+        samples = hvalues.sample(n=min(hvalues.size, max(hvalues.size/8, 65536)))
         _, bins = pd.qcut(samples, partitions, retbins=True, labels=False)
     else:
         raise Exception()
@@ -365,7 +365,7 @@ def write_s3_partitions(df, column_names, bintype, partitions, storage):
             # write output to storage
             output_loc = storage + str(bin_index) + ".csv"
             outputs_info.append(write_s3_intermediate(output_loc, split, s3_client))
-    write_pool = ThreadPool(10)
+    write_pool = ThreadPool(1)
     write_pool.map(write_task, range(len(bins)))
     write_pool.close()
     write_pool.join()
@@ -547,7 +547,7 @@ def read_s3_multiple_splits(names, dtypes, prefix, number_splits, suffix):
         d = read_s3_intermediate(key, s3_client)
         ds.append(d)
     
-    read_pool = ThreadPool(10)
+    read_pool = ThreadPool(1)
     read_pool.map(read_work, range(number_splits))
     read_pool.close()
     read_pool.join()
@@ -679,13 +679,14 @@ def execute_s3_stage(stage_function, tasks):
 def execute_local_stage(stage_function, tasks):
     stage_info = []
     for task in tasks:
+        task['write_output'] = True
         stage_info.append(stage_function(task))
     res = {'results' : stage_info}
     return res
 
 def execute_stage(stage_function, tasks):
     if mode == 'local':
-        return execute_local_stage(stage_function, tasks)
+       return execute_local_stage(stage_function, tasks)
     else:
         return execute_s3_stage(stage_function, tasks)
 
@@ -731,8 +732,10 @@ def stage1(key):
 
     results = {}
     info = {}
-    info['outputs_info'] = outputs_info
-    results['info'] = {}
+    if 'write_output' in key and key['write_output']:
+        info['outputs_info'] = outputs_info
+    #results['info'] = {}
+    results['info'] = info
     results['breakdown'] = [tr, tc, tw, (tc+tc+tw)]
     
     return results
@@ -756,7 +759,7 @@ def stage2(key):
     t0 = time.time()
 
     storage = output_address + "/part_" + str(key['task_id']) + "_"
-    res = write_partitions(cr, ['ws_order_number'], 'uniform', parall_1, storage)
+    res = write_partitions(cr, ['wr_order_number'], 'uniform', parall_1, storage)
     outputs_info = res['outputs_info']
     [tcc, tww] = res['breakdown']
     tc += tcc
@@ -764,8 +767,10 @@ def stage2(key):
 
     results = {}
     info = {}
-    info['outputs_info'] = outputs_info
-    results['info'] = {}
+    if 'write_output' in key and key['write_output']:
+        info['outputs_info'] = outputs_info
+    results['info'] = info
+    #results['info'] = {}
     results['breakdown'] = [tr, tc, tw, (tc+tc+tw)]
     return results
 
@@ -791,7 +796,7 @@ def stage3(key):
     tr += t1 - t0
     t0 = time.time()
 
-    cs_succient = cs[['cs_order_number', 'cs_warehouse_sk']]
+    cs_succient = cs[['ws_order_number', 'ws_warehouse_sk']]
     '''
     cs_sj = pd.merge(cs, cs_succient, on=['cs_order_number'])
     del cs
@@ -803,11 +808,11 @@ def stage3(key):
     # the above impl eats too much memory
     # trying an alternative
     # 
-    wh_uc = cs_succient.groupby(['cs_order_number']).agg({'cs_warehouse_sk':'nunique'})
-    target_order_numbers = wh_uc.loc[wh_uc['cs_warehouse_sk'] > 1].index.values
-    cs_sj_f1 = cs.loc[cs['cs_order_number'].isin(target_order_numbers)]
+    wh_uc = cs_succient.groupby(['ws_order_number']).agg({'ws_warehouse_sk':'nunique'})
+    target_order_numbers = wh_uc.loc[wh_uc['ws_warehouse_sk'] > 1].index.values
+    cs_sj_f1 = cs.loc[cs['ws_order_number'].isin(target_order_numbers)]
 
-    cs_sj_f2 = cs_sj_f1.loc[cs_sj_f1['cs_order_number'].isin(cr.cr_order_number)]
+    cs_sj_f2 = cs_sj_f1.loc[cs_sj_f1['ws_order_number'].isin(cr.wr_order_number)]
     del cs_sj_f1
     #cs_sj_f2.rename(columns = {'cs_warehouse_sk_y':'cs_warehouse_sk'}, inplace = True)
     
@@ -815,10 +820,10 @@ def stage3(key):
     
     # join date_dim
     dd = d[['d_date', 'd_date_sk']]
-    dd_select = dd[(pd.to_datetime(dd['d_date']) > pd.to_datetime('2002-02-01')) & (pd.to_datetime(dd['d_date']) < pd.to_datetime('2002-04-01'))]
+    dd_select = dd[(pd.to_datetime(dd['d_date']) > pd.to_datetime('1999-02-01')) & (pd.to_datetime(dd['d_date']) < pd.to_datetime('1999-04-01'))]
     dd_filtered = dd_select[['d_date_sk']]
     
-    merged = cs_sj_f2.merge(dd_filtered, left_on='cs_ship_date_sk', right_on='d_date_sk')
+    merged = cs_sj_f2.merge(dd_filtered, left_on='ws_ship_date_sk', right_on='d_date_sk')
     del dd
     del cs_sj_f2
     del dd_select
@@ -833,7 +838,7 @@ def stage3(key):
     t0 = time.time()
 
     #print(merged.dtypes)
-    res = write_partitions(merged, ['cs_ship_addr_sk'], 'uniform', parall_2, storage)
+    res = write_partitions(merged, ['ws_ship_addr_sk'], 'uniform', parall_2, storage)
     outputs_info = res['outputs_info']
     [tcc, tww] = res['breakdown']
     tc += tcc
@@ -841,8 +846,10 @@ def stage3(key):
 
     results = {}
     info = {}
-    info['outputs_info'] = outputs_info
-    results['info'] = {}
+    if 'write_output' in key and key['write_output']:
+        info['outputs_info'] = outputs_info
+    results['info'] = info
+    #results['info'] = {}
     results['breakdown'] = [tr, tc, tw, (tc+tc+tw)]
     return results
 
@@ -864,7 +871,7 @@ def stage4(key):
     t0 = time.time()
 
     storage = output_address + "/part_" + str(key['task_id']) + "_"
-    cs = cs[cs.ca_state == 'GA'][['ca_address_sk']]
+    cs = cs[cs.ca_state == 'IL'][['ca_address_sk']]
     
     t1 = time.time()
     tc += t1 - t0
@@ -878,8 +885,10 @@ def stage4(key):
 
     results = {}
     info = {}
-    info['outputs_info'] = outputs_info
-    results['info'] = {}
+    if 'write_output' in key and key['write_output']:
+        info['outputs_info'] = outputs_info
+    results['info'] = info
+    #results['info'] = {}
     results['breakdown'] = [tr, tc, tw, (tc+tc+tw)]
     return results
 
@@ -896,22 +905,22 @@ def stage5(key):
     output_address = key['output_address']
     cs = read_multiple_splits(key['names'], key['dtypes'], key['prefix'], key['number_splits'], key['suffix'])
     ca = read_multiple_splits(key['names2'], key['dtypes2'], key['prefix2'], key['number_splits2'], key['suffix2'])
-    cc = read_table(key['call_center'])
+    cc = read_table(key['web_site'])
 
     t1 = time.time()
     tr += t1 - t0
     t0 = time.time()
 
-    merged = cs.merge(ca, left_on='cs_ship_addr_sk', right_on='ca_address_sk')
-    merged.drop('cs_ship_addr_sk', axis=1, inplace=True)
+    merged = cs.merge(ca, left_on='ws_ship_addr_sk', right_on='ca_address_sk')
+    merged.drop('ws_ship_addr_sk', axis=1, inplace=True)
     
-    list_addr = ['Williamson County', 'Williamson County', 'Williamson County', 'Williamson County', 'Williamson County']
-    cc_p = cc[cc.cc_county.isin(list_addr)][['cc_call_center_sk']]
+    #list_addr = ['Williamson County', 'Williamson County', 'Williamson County', 'Williamson County', 'Williamson County']
+    cc_p = cc[cc['web_company_name'] == 'pri'][['web_site_sk']]
     
     #print(cc['cc_country'])
-    merged2 = merged.merge(cc_p, left_on='cs_call_center_sk', right_on='cc_call_center_sk')
+    merged2 = merged.merge(cc_p, left_on='ws_web_site_sk', right_on='web_site_sk')
     
-    toshuffle = merged2[['cs_order_number', 'cs_ext_ship_cost', 'cs_net_profit']]
+    toshuffle = merged2[['ws_order_number', 'ws_ext_ship_cost', 'ws_net_profit']]
     
     storage = output_address + "/part_" + str(key['task_id']) + "_"
     
@@ -919,7 +928,7 @@ def stage5(key):
     tc += t1 - t0
     t0 = time.time()
 
-    res = write_partitions(toshuffle, ['cs_order_number'], 'uniform', parall_3, storage)
+    res = write_partitions(toshuffle, ['ws_order_number'], 'uniform', parall_3, storage)
     outputs_info = res['outputs_info']
     [tcc, tww] = res['breakdown']
     tc += tcc
@@ -927,8 +936,10 @@ def stage5(key):
 
     results = {}
     info = {}
-    info['outputs_info'] = outputs_info
-    results['info'] = {}
+    if 'write_output' in key and key['write_output']:
+        info['outputs_info'] = outputs_info
+    results['info'] = info
+    #results['info'] = {}
     results['breakdown'] = [tr, tc, tw, (tc+tc+tw)]
     return results
 
@@ -949,9 +960,9 @@ def stage6(key):
     tr += t1 - t0
     t0 = time.time()
 
-    a1 = pd.unique(cs['cs_order_number']).size
-    a2 = cs['cs_ext_ship_cost'].sum()
-    a3 = cs['cs_net_profit'].sum()
+    a1 = pd.unique(cs['ws_order_number']).size
+    a2 = cs['ws_ext_ship_cost'].sum()
+    a3 = cs['ws_net_profit'].sum()
     
     t1 = time.time()
     tc += t1 - t0
@@ -986,7 +997,7 @@ dtypes = get_dtypes_for_table(table)
 tasks_stage1 = []
 task_id = 0
 all_locs = get_locations(table)
-chunks = [all_locs[x:min(x+2,len(all_locs))] for x in xrange(0, len(all_locs), 2)]
+chunks = [all_locs[x:min(x+1,len(all_locs))] for x in xrange(0, len(all_locs), 1)]
 for loc in chunks:
     key = {}
     # print(task_id)
@@ -1002,13 +1013,15 @@ for loc in chunks:
 #for task in tasks_stage1:
 #    stage1_info.append(stage1(task))
 
-#results_stage = execute_local_stage(stage1, [tasks_stage1[0]])
 #results_stage = execute_stage(stage1, [tasks_stage1[0]])
 #'''
-results_stage = execute_stage(stage1, tasks_stage1)
+#results_stage = execute_stage(stage1, tasks_stage1)
+results_stage = execute_local_stage(stage1, [tasks_stage1[0]])
+#results_stage = execute_stage(stage1, [tasks_stage1[0]])
 stage1_info = [a['info'] for a in results_stage['results']]
-stage_info_load['1'] = stage1_info
-
+#print(stage1_info)
+stage_info_load['1'] = stage1_info[0]
+#exit(0)
 results.append(results_stage)
 
 #print(results_stage)
@@ -1030,7 +1043,7 @@ dtypes = get_dtypes_for_table(table)
 tasks_stage2 = []
 task_id = 0
 all_locs = get_locations(table)
-chunks = [all_locs[x:min(x+10,len(all_locs))] for x in xrange(0, len(all_locs), 10)]
+chunks = [all_locs[x:min(x+1,len(all_locs))] for x in xrange(0, len(all_locs), 1)]
 for loc in chunks:
     key = {}
     # print(task_id)
@@ -1044,10 +1057,11 @@ for loc in chunks:
     tasks_stage2.append(key)
     
 
-results_stage = execute_stage(stage2, tasks_stage2)
+#results_stage = execute_stage(stage2, tasks_stage2)
+results_stage = execute_local_stage(stage2, [tasks_stage2[0]])
 stage2_info = [a['info'] for a in results_stage['results']]
 results.append(results_stage)
-stage_info_load['2'] = stage2_info
+stage_info_load['2'] = stage2_info[0]
 
 pickle.dump(results, open(filename, 'wb'))
 
@@ -1060,7 +1074,7 @@ pickle.dump(results, open(filename, 'wb'))
 
 # In[30]:
 
-exit(0)
+#exit(0)
 
 tasks_stage3 = []
 task_id = 0
@@ -1096,13 +1110,14 @@ for i in range(parall_1):
     task_id += 1
 
 
-results_stage = execute_stage(stage3, tasks_stage3)
-#results_stage = execute_local_stage(stage3, [tasks_stage3[0]])
+#results_stage = execute_stage(stage3, tasks_stage3)
+results_stage = execute_local_stage(stage3, [tasks_stage3[0]])
 #print(results_stage)
 stage3_info = [a['info'] for a in results_stage['results']]
 results.append(results_stage)
+stage_info_load['3'] = stage3_info[0]
 
-
+exit(0)
 pickle.dump(results, open(filename, 'wb'))
 #exit(0)
 
@@ -1132,9 +1147,11 @@ for loc in get_locations(table):
         
     tasks_stage4.append(key)
 #'''    
-results_stage = execute_stage(stage4, tasks_stage4)
+results_stage = execute_local_stage(stage4, [tasks_stage4[0]])
+#results_stage = execute_stage(stage4, tasks_stage4)
 stage4_info = [a['info'] for a in results_stage['results']]
 results.append(results_stage)
+stage_info_load['4'] = stage4_info[0]
 
 
 pickle.dump(results, open(filename, 'wb'))
@@ -1146,7 +1163,7 @@ pickle.dump(results, open(filename, 'wb'))
 
 tasks_stage5 = []
 task_id = 0
-call_center_loc = get_locations("call_center")[0]
+call_center_loc = get_locations("web_site")[0]
 #print(info["outputs_info"][0])
 for i in range(parall_2):
     key = {}
@@ -1168,20 +1185,22 @@ for i in range(parall_2):
     key['number_splits2'] = len(tasks_stage4)
     
     table = {}
-    table['names'] = get_name_for_table("call_center")
-    table['dtypes'] = get_dtypes_for_table("call_center")
+    table['names'] = get_name_for_table("web_site")
+    table['dtypes'] = get_dtypes_for_table("web_site")
     table['loc'] = call_center_loc
-    key['call_center'] = table
+    key['web_site'] = table
     
     key['output_address'] = temp_address + "intermediate/stage5"
 
     tasks_stage5.append(key)
     task_id += 1
     
-results_stage = execute_stage(stage5, tasks_stage5)
 #results_stage = execute_stage(stage5, tasks_stage5)
-#results_stage = execute_local_stage(stage5, [tasks_stage5[0]])
+results_stage = execute_local_stage(stage5, [tasks_stage5[0]])
 stage5_info = [a['info'] for a in results_stage['results']]
+stage_info_load['5'] = stage5_info[0]
+pickle.dump(stage_info_load, open("stage_info_load_94.pickle", "wb"))
+
 results.append(results_stage)
 
 pickle.dump(results, open(filename, 'wb'))
@@ -1210,6 +1229,7 @@ for i in range(parall_3):
     task_id += 1
     
 results_stage = execute_stage(stage6, tasks_stage6)
+#results_stage = execute_local_stage(stage6, [tasks_stage6[0]])
 stage6_info = [a['info'] for a in results_stage['results']]
 results.append(results_stage)
 
