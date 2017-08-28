@@ -72,7 +72,7 @@ parall_3 = 1000
 #mode = 'local'
 #mode = 's3-only'
 mode = 's3-redis'
-pywren_rate = 2000
+pywren_rate = 1050
 
 
 n_buckets = 1
@@ -83,7 +83,9 @@ n_buckets = 1
 
 redis_hostname = "tpcds-large2.oapxhs.0001.usw2.cache.amazonaws.com"
 redisnode = "tpcds-large.oapxhs.clustercfg.usw2.cache.amazonaws.com"
-hostnames = ["tpcds1.oapxhs.0001.usw2.cache.amazonaws.com"]
+#hostnames = ["tpcds1.oapxhs.0001.usw2.cache.amazonaws.com"]
+hostnames = ["tpcds1.oapxhs.0001.usw2.cache.amazonaws.com",
+            "tpcds2.oapxhs.0001.usw2.cache.amazonaws.com"]
 '''
 hostnames = ["tpcds1.oapxhs.0001.usw2.cache.amazonaws.com",
              "tpcds2.oapxhs.0001.usw2.cache.amazonaws.com",
@@ -113,8 +115,8 @@ instance_type = "cache.r3.8xlarge"
 
 wrenexec = pywren.default_executor(shard_runtime=True)
 
-stage_info_load = pickle.load(open("stage_info_load_95.pickle", "r"))
-#stage_info_load = {}
+#stage_info_load = pickle.load(open("stage_info_load_95.pickle", "r"))
+stage_info_load = {}
 
 pm = [str(parall_1), str(parall_2), str(parall_3), str(pywren_rate), str(n_nodes)]
 filename = "cluster-" +  mode + '-tpcds-q95-scale' + str(scale) + "-" + "-".join(pm) + "-b" + str(n_buckets) + ".pickle"
@@ -1261,6 +1263,8 @@ results.append(results_stage)
 
 pickle.dump(results, open(filename, 'wb'))
 
+
+pickle.dump(stage_info_load, open("stage_info_load_95.pickle", "wb"))
 # end stage7
 
 tasks_stage8 = []
