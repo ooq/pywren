@@ -797,7 +797,7 @@ def stage3(key):
     cs = read_multiple_splits(key['names'], key['dtypes'], key['prefix'], key['number_splits'], key['suffix'])
     cr = read_multiple_splits(key['names2'], key['dtypes2'], key['prefix2'], key['number_splits2'], key['suffix2'])
     
-    d = read_table(table)
+    d = read_table(key['date_dim'])
     #return 1
     t1 = time.time()
     tr += t1 - t0
