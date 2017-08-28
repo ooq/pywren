@@ -33,22 +33,22 @@ def f(key):
 	#redisurl1 = "pywren-sharding-test-0001-001.oapxhs.0001.usw2.cache.amazonaws.com"
 	#redisurl1 = "pywren-redis.oapxhs.ng.0001.usw2.cache.amazonaws.com"
 	startup_nodes = [{"host": redisnode, "port": 6379}]
-	r1 = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
-	#r1 = redis.StrictRedis(host=redisnode, port=6379, db=0)
+	#r1 = StrictRedisCluster(startup_nodes=startup_nodes, skip_full_coverage_check=True)
+	r1 = redis.StrictRedis(host=redisnode, port=6379, db=0)
 	#r1 = redis.StrictRedis(host=redisurl1, port=6379, db=0)
 	#r1 = redis.StrictRedisCluster(startup_nodes=startup_nodes)
-	r1.set("foo", "bar")
-        print(r1.get("foo"))
+	#r1.set("foo", "bar")
+        #print(r1.get("foo"))
 	sizes = r1.dbsize()
-        #print(r1.info())
-	#r1.flushall()
+        print(r1.info())
+	r1.flushall()
 	return sizes
 	#return 1
 	#return 1
 	#raise Exception("1", "2")
 	#pywren.wrenlogging.default_config()
-#print f(1)
-#exit(0)
+print f(1)
+exit(0)
 wrenexec = pywren.default_executor(job_max_runtime=200)
 #wrenexec = pywren.dummy_executor()
 futures = wrenexec.map(f, range(1))

@@ -113,8 +113,8 @@ instance_type = "cache.r3.8xlarge"
 
 wrenexec = pywren.default_executor(shard_runtime=True)
 
-#stage_info_load = pickle.load(open("stageinfo.pickle", "r"))
-stage_info_load = {}
+stage_info_load = pickle.load(open("stage_info_load_94.pickle", "r"))
+#stage_info_load = {}
 
 pm = [str(parall_1), str(parall_2), str(parall_3), str(pywren_rate), str(n_nodes)]
 filename = "cluster-" +  mode + '-tpcds-q94-scale' + str(scale) + "-" + "-".join(pm) + "-b" + str(n_buckets) + ".pickle"
@@ -278,15 +278,18 @@ def add_bin(df, indices, bintype, partitions):
 
 def write_local_intermediate(table, output_loc):
     output_info = {}
-    table.to_csv(output_loc, sep="|", header=False, index=False)
+    slt_columns = table.columns.delete(table.columns.get_loc('bin'))
+    table.to_csv(csv_buffer, sep="|", header=False, index=False, columns=slt_columns)
     output_info['loc'] = output_loc
-    output_info['names'] = table.columns
-    output_info['dtypes'] = table.dtypes
+    output_info['names'] = slt_columns
+    output_info['dtypes'] = table.dtypes[slt_columns]
+
     return output_info
 
 def write_s3_intermediate(output_loc, table, s3_client=None):
     csv_buffer = BytesIO()
-    table.to_csv(csv_buffer, sep="|", header=False, index=False)
+    slt_columns = table.columns.delete(table.columns.get_loc('bin'))
+    table.to_csv(csv_buffer, sep="|", header=False, index=False, columns=slt_columns)
     if s3_client == None:
         s3_client = boto3.client('s3')
         
@@ -296,8 +299,9 @@ def write_s3_intermediate(output_loc, table, s3_client=None):
                          Body=csv_buffer.getvalue())
     output_info = {}
     output_info['loc'] = output_loc
-    output_info['names'] = table.columns
-    output_info['dtypes'] = table.dtypes
+    output_info['names'] = slt_columns
+    output_info['dtypes'] = table.dtypes[slt_columns]
+
 
     return output_info
 
@@ -312,8 +316,8 @@ def write_redis_intermediate(output_loc, table, redis_client=None):
 
     output_info = {}
     output_info['loc'] = output_loc
-    output_info['names'] = table.columns
-    output_info['dtypes'] = table.dtypes
+    output_info['names'] = slt_columns
+    output_info['dtypes'] = table.dtypes[slt_columns]
 
     return output_info
 
@@ -600,6 +604,9 @@ def read_redis_multiple_splits(names, dtypes, prefix, number_splits, suffix):
         redis_client.connection_pool.disconnect()
 
     #return pd.concat(ds)
+    #if None in read_data:
+    #    print("None in read_data")
+    #print("number of Nones: " + str(len([None for v in read_data if v is None])) + " " + str(len(read_data)))
     return convert_buffer_to_table(names, dtypes_dict, "".join(read_data))
 
 def read_table(key):
@@ -997,7 +1004,7 @@ dtypes = get_dtypes_for_table(table)
 tasks_stage1 = []
 task_id = 0
 all_locs = get_locations(table)
-chunks = [all_locs[x:min(x+1,len(all_locs))] for x in xrange(0, len(all_locs), 1)]
+chunks = [all_locs[x:min(x+2,len(all_locs))] for x in xrange(0, len(all_locs), 2)]
 for loc in chunks:
     key = {}
     # print(task_id)
@@ -1015,12 +1022,12 @@ for loc in chunks:
 
 #results_stage = execute_stage(stage1, [tasks_stage1[0]])
 #'''
-#results_stage = execute_stage(stage1, tasks_stage1)
-results_stage = execute_local_stage(stage1, [tasks_stage1[0]])
+results_stage = execute_stage(stage1, tasks_stage1)
+#results_stage = execute_local_stage(stage1, [tasks_stage1[0]])
 #results_stage = execute_stage(stage1, [tasks_stage1[0]])
 stage1_info = [a['info'] for a in results_stage['results']]
 #print(stage1_info)
-stage_info_load['1'] = stage1_info[0]
+#stage_info_load['1'] = stage1_info[0]
 #exit(0)
 results.append(results_stage)
 
@@ -1043,7 +1050,7 @@ dtypes = get_dtypes_for_table(table)
 tasks_stage2 = []
 task_id = 0
 all_locs = get_locations(table)
-chunks = [all_locs[x:min(x+1,len(all_locs))] for x in xrange(0, len(all_locs), 1)]
+chunks = [all_locs[x:min(x+10,len(all_locs))] for x in xrange(0, len(all_locs), 10)]
 for loc in chunks:
     key = {}
     # print(task_id)
@@ -1057,11 +1064,11 @@ for loc in chunks:
     tasks_stage2.append(key)
     
 
-#results_stage = execute_stage(stage2, tasks_stage2)
-results_stage = execute_local_stage(stage2, [tasks_stage2[0]])
+results_stage = execute_stage(stage2, tasks_stage2)
+#results_stage = execute_local_stage(stage2, [tasks_stage2[0]])
 stage2_info = [a['info'] for a in results_stage['results']]
 results.append(results_stage)
-stage_info_load['2'] = stage2_info[0]
+#stage_info_load['2'] = stage2_info[0]
 
 pickle.dump(results, open(filename, 'wb'))
 
@@ -1110,14 +1117,14 @@ for i in range(parall_1):
     task_id += 1
 
 
-#results_stage = execute_stage(stage3, tasks_stage3)
-results_stage = execute_local_stage(stage3, [tasks_stage3[0]])
+results_stage = execute_stage(stage3, tasks_stage3)
+#results_stage = execute_local_stage(stage3, [tasks_stage3[0]])
 #print(results_stage)
 stage3_info = [a['info'] for a in results_stage['results']]
 results.append(results_stage)
-stage_info_load['3'] = stage3_info[0]
+#stage_info_load['3'] = stage3_info[0]
 
-exit(0)
+#exit(0)
 pickle.dump(results, open(filename, 'wb'))
 #exit(0)
 
@@ -1147,18 +1154,17 @@ for loc in get_locations(table):
         
     tasks_stage4.append(key)
 #'''    
-results_stage = execute_local_stage(stage4, [tasks_stage4[0]])
-#results_stage = execute_stage(stage4, tasks_stage4)
+results_stage = execute_stage(stage4, tasks_stage4)
+#results_stage = execute_local_stage(stage4, [tasks_stage4[0]])
 stage4_info = [a['info'] for a in results_stage['results']]
 results.append(results_stage)
-stage_info_load['4'] = stage4_info[0]
+#stage_info_load['4'] = stage4_info[0]
 
 
 pickle.dump(results, open(filename, 'wb'))
 #'''
-
 # In[32]:
-
+#exit(0)
 
 
 tasks_stage5 = []
@@ -1195,11 +1201,11 @@ for i in range(parall_2):
     tasks_stage5.append(key)
     task_id += 1
     
-#results_stage = execute_stage(stage5, tasks_stage5)
-results_stage = execute_local_stage(stage5, [tasks_stage5[0]])
+results_stage = execute_stage(stage5, tasks_stage5)
+#results_stage = execute_local_stage(stage5, [tasks_stage5[0]])
 stage5_info = [a['info'] for a in results_stage['results']]
-stage_info_load['5'] = stage5_info[0]
-pickle.dump(stage_info_load, open("stage_info_load_94.pickle", "wb"))
+#stage_info_load['5'] = stage5_info[0]
+#pickle.dump(stage_info_load, open("stage_info_load_94.pickle", "wb"))
 
 results.append(results_stage)
 
@@ -1230,6 +1236,7 @@ for i in range(parall_3):
     
 results_stage = execute_stage(stage6, tasks_stage6)
 #results_stage = execute_local_stage(stage6, [tasks_stage6[0]])
+#results_stage = execute_stage(stage6, [tasks_stage6[0]])
 stage6_info = [a['info'] for a in results_stage['results']]
 results.append(results_stage)
 
