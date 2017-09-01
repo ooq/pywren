@@ -163,9 +163,11 @@ if __name__ == "__main__":
     ("web_site",1)]
     all_tables = {10:tables_10, 100: tables_100, 1000: tables_1000}
 
-    scale = 100
+    scale = 10
     passed_tasks = [] 
     for (table, total) in all_tables[scale]:
+        if table is not "web_sales":
+            continue
         print table + " " + str(total)
         #if table is not "web_sales":
         #    continue
@@ -179,6 +181,9 @@ if __name__ == "__main__":
         #for key in passed_tasks:
         #    print(run_command(key))
         #continue
+    for task in passed_tasks:
+        print(run_command(task))
+    exit(0)
     fut = wrenexec.map_sync_with_rate_and_retries(run_command, passed_tasks, rate=300)
 
     pywren.wait(fut)

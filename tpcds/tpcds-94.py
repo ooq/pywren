@@ -72,7 +72,7 @@ parall_3 = 1000
 #mode = 'local'
 #mode = 's3-only'
 mode = 's3-redis'
-pywren_rate = 2000
+pywren_rate = 1050
 
 
 n_buckets = 1
@@ -84,6 +84,11 @@ n_buckets = 1
 redis_hostname = "tpcds-large2.oapxhs.0001.usw2.cache.amazonaws.com"
 redisnode = "tpcds-large.oapxhs.clustercfg.usw2.cache.amazonaws.com"
 hostnames = ["tpcds1.oapxhs.0001.usw2.cache.amazonaws.com"]
+hostnames = ["tpcds1.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds2.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds3.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds4.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds5.oapxhs.0001.usw2.cache.amazonaws.com"]
 '''
 hostnames = ["tpcds1.oapxhs.0001.usw2.cache.amazonaws.com",
              "tpcds2.oapxhs.0001.usw2.cache.amazonaws.com",
@@ -117,7 +122,7 @@ stage_info_load = pickle.load(open("stage_info_load_94.pickle", "r"))
 #stage_info_load = {}
 
 pm = [str(parall_1), str(parall_2), str(parall_3), str(pywren_rate), str(n_nodes)]
-filename = "cluster-" +  mode + '-tpcds-q94-scale' + str(scale) + "-" + "-".join(pm) + "-b" + str(n_buckets) + ".pickle"
+filename = "nomiti.cluster-" +  mode + '-tpcds-q94-scale' + str(scale) + "-" + "-".join(pm) + "-b" + str(n_buckets) + ".pickle"
 #filename = "simple-test.pickle"
 
 print("Scale is " + str(scale))
@@ -278,7 +283,9 @@ def add_bin(df, indices, bintype, partitions):
 
 def write_local_intermediate(table, output_loc):
     output_info = {}
-    slt_columns = table.columns.delete(table.columns.get_loc('bin'))
+
+    if 'bin' in table.columns:
+        slt_columns = table.columns.delete(table.columns.get_loc('bin'))
     table.to_csv(csv_buffer, sep="|", header=False, index=False, columns=slt_columns)
     output_info['loc'] = output_loc
     output_info['names'] = slt_columns
@@ -288,7 +295,9 @@ def write_local_intermediate(table, output_loc):
 
 def write_s3_intermediate(output_loc, table, s3_client=None):
     csv_buffer = BytesIO()
-    slt_columns = table.columns.delete(table.columns.get_loc('bin'))
+
+    if 'bin' in table.columns:
+        slt_columns = table.columns.delete(table.columns.get_loc('bin'))
     table.to_csv(csv_buffer, sep="|", header=False, index=False, columns=slt_columns)
     if s3_client == None:
         s3_client = boto3.client('s3')
@@ -307,7 +316,8 @@ def write_s3_intermediate(output_loc, table, s3_client=None):
 
 def write_redis_intermediate(output_loc, table, redis_client=None):
     csv_buffer = BytesIO()
-    slt_columns = table.columns.delete(table.columns.get_loc('bin'))
+    if 'bin' in table.columns:
+        slt_columns = table.columns.delete(table.columns.get_loc('bin'))
     table.to_csv(csv_buffer, sep="|", header=False, index=False, columns=slt_columns)
     if redis_client == None:
         #redis_client = redis.StrictRedis(host=redis_hostname, port=6379, db=0)
@@ -637,7 +647,7 @@ def write_intermediate(table, output_loc):
     elif mode == "s3-only":
         return write_s3_intermediate(table, output_loc)
     else:
-        return write_reids_intermediate(table, output_loc)
+        return write_redis_intermediate(table, output_loc)
 
     
 def write_partitions(df, column_names, bintype, partitions, storage):
@@ -670,7 +680,7 @@ def execute_s3_stage(stage_function, tasks):
     #futures = wrenexec.map(stage_function, tasks)
     #pywren.wait(futures, 1, 64, 1)
     
-    futures = wrenexec.map_sync_with_rate_and_retries(stage_function, tasks, straggler=True, WAIT_DUR_SEC=5, rate=pywren_rate)
+    futures = wrenexec.map_sync_with_rate_and_retries(stage_function, tasks, straggler=False, WAIT_DUR_SEC=5, rate=pywren_rate)
     
     results = [f.result() for f in futures]
     run_statuses = [f.run_status for f in futures]

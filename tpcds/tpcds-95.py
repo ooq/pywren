@@ -86,6 +86,11 @@ redisnode = "tpcds-large.oapxhs.clustercfg.usw2.cache.amazonaws.com"
 #hostnames = ["tpcds1.oapxhs.0001.usw2.cache.amazonaws.com"]
 hostnames = ["tpcds1.oapxhs.0001.usw2.cache.amazonaws.com",
             "tpcds2.oapxhs.0001.usw2.cache.amazonaws.com"]
+hostnames = ["tpcds1.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds2.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds3.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds4.oapxhs.0001.usw2.cache.amazonaws.com",
+             "tpcds5.oapxhs.0001.usw2.cache.amazonaws.com"]
 '''
 hostnames = ["tpcds1.oapxhs.0001.usw2.cache.amazonaws.com",
              "tpcds2.oapxhs.0001.usw2.cache.amazonaws.com",
@@ -115,11 +120,11 @@ instance_type = "cache.r3.8xlarge"
 
 wrenexec = pywren.default_executor(shard_runtime=True)
 
-#stage_info_load = pickle.load(open("stage_info_load_95.pickle", "r"))
-stage_info_load = {}
+stage_info_load = pickle.load(open("stage_info_load_95.pickle", "r"))
+#stage_info_load = {}
 
 pm = [str(parall_1), str(parall_2), str(parall_3), str(pywren_rate), str(n_nodes)]
-filename = "cluster-" +  mode + '-tpcds-q95-scale' + str(scale) + "-" + "-".join(pm) + "-b" + str(n_buckets) + ".pickle"
+filename = "nomiti.cluster-" +  mode + '-tpcds-q95-scale' + str(scale) + "-" + "-".join(pm) + "-b" + str(n_buckets) + ".pickle"
 #filename = "simple-test.pickle"
 
 print("Scale is " + str(scale))
@@ -280,7 +285,11 @@ def add_bin(df, indices, bintype, partitions):
 
 def write_local_intermediate(table, output_loc):
     output_info = {}
-    slt_columns = table.columns.delete(table.columns.get_loc('bin'))
+    if 'bin' in table.columns:
+        slt_columns = table.columns.delete(table.columns.get_loc('bin'))
+    else:
+        slt_columns = table.columns
+ 
     table.to_csv(csv_buffer, sep="|", header=False, index=False, columns=slt_columns)
     output_info['loc'] = output_loc
     output_info['names'] = slt_columns
@@ -290,7 +299,10 @@ def write_local_intermediate(table, output_loc):
 
 def write_s3_intermediate(output_loc, table, s3_client=None):
     csv_buffer = BytesIO()
-    slt_columns = table.columns.delete(table.columns.get_loc('bin'))
+    if 'bin' in table.columns:
+        slt_columns = table.columns.delete(table.columns.get_loc('bin'))
+    else:
+        slt_columns = table.columns
     table.to_csv(csv_buffer, sep="|", header=False, index=False, columns=slt_columns)
     if s3_client == None:
         s3_client = boto3.client('s3')
@@ -309,7 +321,11 @@ def write_s3_intermediate(output_loc, table, s3_client=None):
 
 def write_redis_intermediate(output_loc, table, redis_client=None):
     csv_buffer = BytesIO()
-    slt_columns = table.columns.delete(table.columns.get_loc('bin'))
+    if 'bin' in table.columns:
+        slt_columns = table.columns.delete(table.columns.get_loc('bin'))
+    else:
+        slt_columns = table.columns
+ 
     table.to_csv(csv_buffer, sep="|", header=False, index=False, columns=slt_columns)
     if redis_client == None:
         redis_index = hash_key_to_index(output_loc, len(hostnames))
@@ -482,8 +498,15 @@ def read_redis_intermediate(key, redis_client=None):
     #bucket_index = int(md5(key['loc']).hexdigest()[8:], 16) % n_buckets
     
     names = list(key['names'])
-    dtypes = key['dtypes']
-
+    dtypes_raw = key['dtypes']
+    if isinstance(dtypes_raw, dict):
+        dtypes = dtypes_raw
+    else:
+        dtypes = {}
+        for i in range(len(names)):
+            dtypes[names[i]] = dtypes_raw[i]
+ 
+    #print(dtypes)
     parse_dates = []
     for d in dtypes:
         if dtypes[d] == datetime.datetime or dtypes[d] == np.datetime64:
@@ -642,7 +665,7 @@ def write_intermediate(table, output_loc):
     elif mode == "s3-only":
         return write_s3_intermediate(table, output_loc)
     else:
-        return write_reids_intermediate(table, output_loc)
+        return write_redis_intermediate(table, output_loc)
 
     
 def write_partitions(df, column_names, bintype, partitions, storage):
@@ -864,6 +887,7 @@ def stage5(key):
     cr = read_multiple_splits(key['names2'], key['dtypes2'], key['prefix2'], key['number_splits2'], key['suffix2'])
     
     d = read_table(key['date_dim'])
+    #print(key['ws_wh'])
     ws_wh = read_intermediate(key['ws_wh'])
 
     #return 1
@@ -1044,9 +1068,12 @@ for loc in chunks:
     tasks_stage1.append(key)
     
 results_stage = execute_stage(stage1, tasks_stage1)
-results_stage = execute_local_stage(stage1, [tasks_stage1[0]])
+#results_stage = execute_local_stage(stage1, [tasks_stage1[0]])
 stage1_info = [a['info'] for a in results_stage['results']]
-stage_info_load['1'] = stage1_info[0]
+#stage_info_load['1'] = stage1_info[0]
+#print("111")
+#print(stage_info_load['1'])
+#print("end111")
 results.append(results_stage)
 
 pickle.dump(results, open(filename, 'wb'))
@@ -1072,9 +1099,10 @@ for task_id in range(parall_1):
     
 
 results_stage = execute_stage(stage2, tasks_stage2)
-results_stage = execute_local_stage(stage2, [tasks_stage2[0]])
+#results_stage = execute_local_stage(stage2, [tasks_stage2[0]])
 stage2_info = [a['info'] for a in results_stage['results']]
-stage_info_load['2'] = stage2_info[0]
+#stage_info_load['2'] = stage2_info[0]
+#print(stage_info_load['2'])
 results.append(results_stage)
 
 pickle.dump(results, open(filename, 'wb'))
@@ -1100,9 +1128,9 @@ for loc in chunks:
     tasks_stage3.append(key)
     
 results_stage = execute_stage(stage3, tasks_stage3)
-results_stage = execute_local_stage(stage3, [tasks_stage3[0]])
+#results_stage = execute_local_stage(stage3, [tasks_stage3[0]])
 stage3_info = [a['info'] for a in results_stage['results']]
-stage_info_load['3'] = stage3_info[0]
+#stage_info_load['3'] = stage3_info[0]
 results.append(results_stage)
 
 pickle.dump(results, open(filename, 'wb'))
@@ -1130,9 +1158,9 @@ for loc in chunks:
     
 
 results_stage = execute_stage(stage4, tasks_stage4)
-results_stage = execute_local_stage(stage4, [tasks_stage4[0]])
+#results_stage = execute_local_stage(stage4, [tasks_stage4[0]])
 stage4_info = [a['info'] for a in results_stage['results']]
-stage_info_load['4'] = stage4_info[0]
+#stage_info_load['4'] = stage4_info[0]
 results.append(results_stage)
 
 pickle.dump(results, open(filename, 'wb'))
@@ -1181,9 +1209,9 @@ for i in range(parall_1):
 
 
 results_stage = execute_stage(stage5, tasks_stage5)
-results_stage = execute_local_stage(stage5, [tasks_stage5[0]])
+#results_stage = execute_local_stage(stage5, [tasks_stage5[0]])
 stage5_info = [a['info'] for a in results_stage['results']]
-stage_info_load['5'] = stage5_info[0]
+#stage_info_load['5'] = stage5_info[0]
 results.append(results_stage)
 
 pickle.dump(results, open(filename, 'wb'))
@@ -1210,9 +1238,9 @@ for loc in get_locations(table):
 
    
 results_stage = execute_stage(stage6, tasks_stage6)
-results_stage = execute_local_stage(stage6, [tasks_stage6[0]])
+#results_stage = execute_local_stage(stage6, [tasks_stage6[0]])
 stage6_info = [a['info'] for a in results_stage['results']]
-stage_info_load['6'] = stage6_info[0]
+#stage_info_load['6'] = stage6_info[0]
 results.append(results_stage)
 
 
@@ -1254,17 +1282,18 @@ for i in range(parall_2):
     tasks_stage7.append(key)
     task_id += 1
     
-results_stage = execute_stage(tasks_stage7, tasks_stage7)
-results_stage = execute_local_stage(tasks_stage7, [tasks_stage7[0]])
+results_stage = execute_stage(stage7, tasks_stage7)
+#results_stage = execute_local_stage(stage7, [tasks_stage7[0]])
+#exit(0)
 stage7_info = [a['info'] for a in results_stage['results']]
-stage_info_load['7'] = stage7_info[0]
+#stage_info_load['7'] = stage7_info[0]
 results.append(results_stage)
 
 
 pickle.dump(results, open(filename, 'wb'))
 
 
-pickle.dump(stage_info_load, open("stage_info_load_95.pickle", "wb"))
+#pickle.dump(stage_info_load, open("stage_info_load_95.pickle", "wb"))
 # end stage7
 
 tasks_stage8 = []

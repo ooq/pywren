@@ -81,16 +81,19 @@ hostnames = ["tpcds1.oapxhs.0001.usw2.cache.amazonaws.com",
              "tpcds18.oapxhs.0001.usw2.cache.amazonaws.com",
              "tpcds19.oapxhs.0001.usw2.cache.amazonaws.com",
              "tpcds20.oapxhs.0001.usw2.cache.amazonaws.com"]
+
+
+hostnames = hostnames[0:1]
 #'''
 n_nodes = len(hostnames)
 startup_nodes = [{"host": redisnode, "port": 6379}]
 instance_type = "cache.r3.8xlarge"
 
 wrenexec = pywren.default_executor(shard_runtime=True)
-stage_info_load = pickle.load(open("stageinfo.pickle", "r"))
+stage_info_load = pickle.load(open("stage_info_load_16.pickle", "r"))
 
 pm = [str(parall_1), str(parall_2), str(parall_3), str(pywren_rate), str(n_nodes)]
-filename = "cluster-" +  mode + '-tpcds-q16-scale' + str(scale) + "-" + "-".join(pm) + "-b" + str(n_buckets) + ".pickle"
+filename = "nomiti.cluster-" +  mode + '-tpcds-q16-scale' + str(scale) + "-" + "-".join(pm) + "-b" + str(n_buckets) + ".pickle"
 #filename = "simple-test.pickle"
 
 print("Scale is " + str(scale))
@@ -881,7 +884,7 @@ def execute_s3_stage(stage_function, tasks):
     #futures = wrenexec.map(stage_function, tasks)
     #pywren.wait(futures, 1, 64, 1)
     
-    futures = wrenexec.map_sync_with_rate_and_retries(stage_function, tasks, straggler=True, WAIT_DUR_SEC=5, rate=pywren_rate)
+    futures = wrenexec.map_sync_with_rate_and_retries(stage_function, tasks, straggler=True, WAIT_DUR_SEC=1, rate=pywren_rate)
     
     results = [f.result() for f in futures]
     run_statuses = [f.run_status for f in futures]
